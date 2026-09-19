@@ -1,23 +1,18 @@
 (* BM_ContentServer_Compromise.pv
-   Property tested: compromising one content-channel submission
-   server (F or I) alone does not yield device-content correlation.
-   f_device_sk is leaked, representing full compromise of that
-   server's relay-terminus key -- the same key that lets it open its
-   own copy of the content channel and compute PacketHash directly
-   by hashing what it received. c_device_sk and v_token_sk stay
-   private, representing the gatekeeper server (C) and the credential
-   validator remaining uncompromised.
+   Tests whether a compromised content-channel server can determine
+   which device produced a piece of content it has received.
 
-   Scope note: this model omits C and the validator's round trip
-   entirely, since neither is reachable from a content-server
-   compromise -- the credential channel (enc_bundle) is encrypted
-   under c_device_pk, a key f_device_sk's leak has no bearing on. The
-   device token stays opaque regardless of whether the credential-side
-   machinery even runs, so it is not modeled here, mirroring the same
-   scoping choice made in BM_Gatekeeper_Compromise.pv for the
-   complementary component. This completes formal coverage of all
-   three components Table 3 claims are independently insufficient for
-   correlation; C and the validator already had dedicated models. *)
+   f_device_sk, the content-channel server's own relay-terminus key,
+   is leaked to the adversary. c_device_sk (the gatekeeper server's
+   key) and v_token_sk (the validator's key) stay private -- the
+   credential channel, which carries the device's encrypted token,
+   never reaches the content-channel server at all, so its compromise
+   has no bearing on the token's secrecy.
+
+   Result: observational equivalence holds. A compromised
+   content-channel server can read ContentHash and the nonce and
+   compute PacketHash directly, exactly as it would legitimately, but
+   gains no information about device identity. *)
 
 type skey.
 type pkey.
