@@ -1,35 +1,22 @@
 (* BM_Registry_Convergence.pv
-   Property tested: a single compromised content-channel submission
-   server cannot finalize a registry record alone. Section 3.3 (draft)
-   requires two independently-submitted entries agreeing on the same
-   ContentHash before the registry finalizes -- this model asks
-   whether a single compromised server can satisfy that requirement
-   by itself.
+   Tests whether one compromised content-channel server can, on its
+   own, satisfy a two-independent-submission requirement at the
+   registry.
 
-   WORKING ASSUMPTION, NOT YET CONFIRMED: each submission server signs
-   its registry submission with its own per-server identity key --
-   here, the same key that already protects its content-channel
-   terminus (f_device_sk for F, i_device_sk for I) -- and the
-   registry's write-rule requires two matching submissions bearing
-   signatures from two distinct, known server identities before
-   finalizing. The current draft text says finalization requires two
-   independent submissions but does not specify how the registry
-   verifies that two submissions actually came from two different
-   servers, rather than one server submitting under two guises. This
-   model assumes signature-based identity is the mechanism, since it
-   parallels how the rest of the system already authorizes writes
-   (Property E's gatekeeper signature). If the real design uses
-   something else -- a fixed roster of network addresses, a different
-   credential entirely -- this model does not describe it and the
-   result below would need to be re-derived under that mechanism
-   instead.
+   Design modeled here: each content-channel server signs its
+   registry submission with its own per-server identity key (the same
+   key that protects its content-channel relay terminus), and the
+   registry requires two matching submissions signed by two distinct
+   server identities before finalizing a record.
 
-   f_device_sk is leaked, representing full compromise of F.
-   i_device_sk stays private, representing I remaining uncompromised.
-   The query asks whether the attacker, holding only F's key, can ever
-   derive I's signing key -- and therefore whether F alone can produce
-   the second, independently-signed submission the registry's
-   write-rule would require. *)
+   f_device_sk is leaked, representing full compromise of one server.
+   i_device_sk, the other server's key, stays private. The query asks
+   whether the adversary, holding only the first key, can derive the
+   second.
+
+   Result: the second server's key never becomes derivable. One
+   compromised server can produce only its own signature, never the
+   second one the registry's write rule requires. *)
 
 type skey.
 type pkey.
