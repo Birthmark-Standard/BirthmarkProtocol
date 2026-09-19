@@ -1,30 +1,21 @@
 (* BM_Gatekeeper_Compromise.pv
-   Property tested: compromising the gatekeeper submission server (C)
-   alone does not yield device-content correlation. c_device_sk is
-   leaked to represent full compromise of C (C's own relay-terminus
-   key, the same key that lets C open the credential packet and see
-   PacketHash in the clear). v_token_sk stays private, representing
-   the validator remaining uncompromised. The device token stays
-   encrypted under v_token_pk throughout, so a compromised C -- which
-   never held v_token_sk in the first place -- gains no way to link a
-   decrypted identity to the packethash it can already see.
+   Tests whether a compromised gatekeeper server can determine which
+   device produced a piece of content.
 
-   Scope note: this model omits the C-to-validator round trip
-   (BlindShare_key, the signature exchange) because that exchange does
-   not change what C can extract from the token either way; C cannot
-   decrypt enc_token before the round trip and cannot decrypt it after,
-   since the round trip only ever touches the already-opaque wrapped
-   PacketHash, never the token. The validator-compromise scenario
-   (the complementary row in Table 3) needs its own separate model,
-   not yet built.
+   c_device_sk, the gatekeeper's own relay-terminus key, is leaked to
+   the adversary, giving it PacketHash in the clear, exactly as the
+   gatekeeper would legitimately hold it. v_token_sk (the validator's
+   key) stays private, so the device's encrypted token remains opaque
+   even to a fully compromised gatekeeper.
 
-   The content channel (h, n) is wrapped under f_device_pk, standing
-   in for whichever of the two content-channel servers this
-   transaction is addressed to -- the same relay-terminus scheme that
-   already protects the credential channel under c_device_pk. Neither
-   f_device_sk nor c_device_sk being leaked together matters for this
-   model, since it tests C's own compromise, not the content-channel
-   server's; f_device_sk stays private throughout. *)
+   The gatekeeper-to-validator round trip (the one-time blinding key,
+   the signature exchange) is omitted: it doesn't change what the
+   gatekeeper can extract from the token either way, since that round
+   trip only ever touches the already-encrypted PacketHash, never the
+   token.
+
+   Result: observational equivalence holds. Holding PacketHash in the
+   clear does not, by itself, reveal which device produced it. *)
 
 type skey.
 type pkey.
