@@ -1,0 +1,135 @@
+(* BM_Baseline_Noncorrelation.pv
+   Properties tested (combined, as in the original): Device
+   Non-Correlation, Registry Observer Non-Identification, Submission
+   Server Blindness -- the no-compromise baseline. A single device
+   with a fixed token (T1) and ambiguous content (contentA or
+   contentB) is tested for observational equivalence: can anything
+   public reveal which content that device used?
+
+   Rebuilt for the current mechanism: the device's credential packet
+   goes to the gatekeeper server (C), not directly to the validator.
+   C performs the round trip with the validator over private channels
+   (gate_to_val / val_to_gate, standing in for the CV-transit/
+   VC-transit encrypted legs -- not separately modeled here since
+   nothing is leaked in this baseline test and they carry no bearing
+   on the property). C confirms the returned, still-wrapped PacketHash
+   matches what it retained, then posts PacketHash alone to the match
+   board. A separate content-side process (standing in for F or I)
+   independently recomputes its own candidate from the content channel
+   and checks it against the match board before posting to the public
+   registry.
+
+   The camera/manufacturer branch is an unrelated baseline comparison
+   system, not part of the Birthmark mechanism, and is unchanged.
+
+   The content channel (h, n) is wrapped under f_device_pk, standing
+   in for whichever of the two content-channel servers this
+   transaction is addressed to -- the same relay-terminus scheme that
+   already protects the credential channel under c_device_pk.
+   content_matcher_a holds f_device_sk and decrypts it, matching how
+   it would legitimately receive its own copy of the content channel;
+   f_device_sk is never leaked, consistent with this being the
+   no-compromise baseline. *)
+
+type key. type skey. type pkey.
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey, bitstring): bitstring.
+reduc forall m:bitstring, sk:skey, rnd:bitstring; adec(aenc(m, pk(sk), rnd), sk) = m.
+fun senc(bitstring, key): bitstring.
+reduc forall m:bitstring, k:key; sdec(senc(m, k), k) = m.
+fun sign(bitstring, skey): bitstring.
+reduc forall m:bitstring, sk:skey; checksign(sign(m, sk), pk(sk)) = m.
+fun hash(bitstring): bitstring.
+
+free pub: channel.
+free gate_to_val: channel [private].
+free val_to_gate: channel [private].
+free match_board: channel [private].
+free registry: channel.
+free v_ok: bitstring.
+free v_no: bitstring.
+free v_token_sk: skey [private]. letfun v_token_pk = pk(v_token_sk).
+free c_device_sk: skey [private]. letfun c_device_pk = pk(c_device_sk).
+free f_device_sk: skey [private]. letfun f_device_pk = pk(f_device_sk).
+free T1: bitstring [private].
+free T2: bitstring [private].
+free contentA: bitstring [private].
+free contentB: bitstring [private].
+
+let device_a(token: bitstring, content: bitstring) =
+    let h = hash(content) in
+    new n: bitstring;
+    let packethash = hash((h, n)) in
+    new rnd_token: bitstring;
+    let enc_token = aenc(token, v_token_pk, rnd_token) in
+    new rnd_bundle: bitstring;
+    let enc_bundle = aenc((enc_token, packethash), c_device_pk, rnd_bundle) in
+    new rnd_content: bitstring;
+    let enc_content = aenc((h, n), f_device_pk, rnd_content) in
+    out(pub, enc_content);
+    out(pub, enc_bundle).
+
+let gatekeeper_a =
+    in(pub, enc_bundle_in: bitstring);
+    let (enc_token_in: bitstring, packethash_in: bitstring) = adec(enc_bundle_in, c_device_sk) in
+    new blindshare_key: key;
+    let wrapped = senc(packethash_in, blindshare_key) in
+    out(gate_to_val, (enc_token_in, wrapped));
+    in(val_to_gate, (decision: bitstring, wrapped_signed: bitstring));
+    let wrapped_checked = checksign(wrapped_signed, v_token_pk) in
+    let packethash_confirmed = sdec(wrapped_checked, blindshare_key) in
+    if (decision = v_ok) && (packethash_confirmed = packethash_in) then
+    out(match_board, packethash_in).
+
+let validator_a =
+    in(gate_to_val, (enc_token_in: bitstring, wrapped_in: bitstring));
+    let token_in = adec(enc_token_in, v_token_sk) in
+    if (token_in = T1) || (token_in = T2) then
+        out(val_to_gate, (v_ok, sign(wrapped_in, v_token_sk)))
+    else
+        out(val_to_gate, (v_no, sign(wrapped_in, v_token_sk))).
+
+let content_matcher_a =
+    in(pub, enc_content_in: bitstring);
+    let (h: bitstring, n: bitstring) = adec(enc_content_in, f_device_sk) in
+    let candidate = hash((h, n)) in
+    in(match_board, posted: bitstring);
+    if candidate = posted then
+    out(registry, h).
+
+free pub_cd: channel. free mfr_private: channel [private]. free blockchain: channel.
+free sk_m: skey [private]. letfun pk_m = pk(sk_m).
+free T1_cd: bitstring [private]. free T2_cd: bitstring [private]. free img_cd: bitstring [private].
+
+let camera(token: bitstring, image: bitstring) =
+    let h = hash(image) in
+    new rnd_token_cd: bitstring;
+    let enc_token = aenc(token, pk_m, rnd_token_cd) in
+    out(pub_cd, h);
+    out(pub_cd, enc_token).
+
+let server_cd =
+    in(pub_cd, h: bitstring);
+    in(mfr_private, decision: bitstring);
+    if decision = v_ok then
+    out(blockchain, h).
+
+let manufacturer =
+    in(pub_cd, enc_token: bitstring);
+    let token = adec(enc_token, sk_m) in
+    if (token = T1_cd || token = T2_cd) then
+        out(mfr_private, v_ok)
+    else
+        out(mfr_private, v_no).
+
+process
+    out(pub, v_token_pk); out(pub, c_device_pk); out(pub, f_device_pk); out(pub_cd, pk_m);
+    (
+        (!device_a(T1, choice[contentA, contentB]))
+        | (!gatekeeper_a)
+        | (!validator_a)
+        | (!content_matcher_a)
+        | (!camera(choice[T1_cd, T2_cd], img_cd))
+        | (!server_cd)
+        | (!manufacturer)
+    )

@@ -1,0 +1,92 @@
+(* BM_Validator_Compromise.pv
+   Property tested: compromising the credential validator alone does
+   not yield device-content correlation. v_token_sk is leaked to
+   represent full validator compromise. c_device_sk stays private,
+   representing the gatekeeper server (C) remaining uncompromised.
+
+   PacketHash reaches the validator only wrapped under blindshare_key,
+   a value C generates fresh per transaction and never shares. A
+   validator holding v_token_sk can now decrypt the device token
+   directly, but still cannot open the wrapped PacketHash, so it gains
+   no way to link the identity it just decrypted to a specific
+   PacketHash or the content it was derived from.
+
+   Companion to BM_Gatekeeper_Compromise.pv, which tests the reverse
+   compromise (C leaked, validator honest). Neither model tests both
+   compromised at once; Table 3 already treats that combination as
+   succeeding by straightforward composition, not requiring its own
+   model, consistent with how the original Property D/E pair handled
+   the analogous case.
+
+   The content channel (h, n) is wrapped under f_device_pk, standing
+   in for whichever of the two content-channel servers this
+   transaction is addressed to -- the same relay-terminus scheme that
+   already protects the credential channel under c_device_pk.
+   f_device_sk stays private throughout; this model tests the
+   validator's compromise, not the content-channel server's. *)
+
+type skey.
+type pkey.
+type key.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey, bitstring): bitstring.
+reduc forall m: bitstring, sk: skey, rnd: bitstring; adec(aenc(m, pk(sk), rnd), sk) = m.
+
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m, k), k) = m.
+
+fun sign(bitstring, skey): bitstring.
+reduc forall m: bitstring, sk: skey; checksign(sign(m, sk), pk(sk)) = m.
+
+fun hash(bitstring): bitstring.
+
+free pub: channel.
+
+free v_token_sk: skey [private].
+free c_device_sk: skey [private].
+free f_device_sk: skey [private].
+
+free T1: bitstring [private].
+free T2: bitstring [private].
+free imgX: bitstring.
+free imgY: bitstring.
+
+let device(token: bitstring, content: bitstring) =
+    let h = hash(content) in
+    new n: bitstring;
+    let packethash = hash((h, n)) in
+    new rnd_token: bitstring;
+    let enc_token = aenc(token, pk(v_token_sk), rnd_token) in
+    new rnd_bundle: bitstring;
+    let enc_bundle = aenc((enc_token, packethash), pk(c_device_sk), rnd_bundle) in
+    new rnd_content: bitstring;
+    let enc_content = aenc((h, n), pk(f_device_sk), rnd_content) in
+    out(pub, enc_content);
+    out(pub, enc_bundle).
+
+let gatekeeper =
+    !
+    in(pub, enc_bundle_in: bitstring);
+    let (enc_token_in: bitstring, packethash_in: bitstring) = adec(enc_bundle_in, c_device_sk) in
+    new blindshare_key: key;
+    let wrapped = senc(packethash_in, blindshare_key) in
+    out(pub, (enc_token_in, wrapped)).
+
+let validator =
+    !
+    in(pub, (enc_token_in: bitstring, wrapped_in: bitstring));
+    let token_in = adec(enc_token_in, v_token_sk) in
+    if (token_in = T1) || (token_in = T2) then
+        out(pub, sign(wrapped_in, v_token_sk)).
+
+process
+    out(pub, pk(c_device_sk));
+    out(pub, v_token_sk);
+    out(pub, pk(f_device_sk));
+    (
+        device(choice[T1,T2], imgX)
+        | device(choice[T2,T1], imgY)
+        | gatekeeper
+        | validator
+    )

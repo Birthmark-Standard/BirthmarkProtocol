@@ -1,0 +1,61 @@
+(* BM_Registry_Convergence.pv
+   Property tested: a single compromised content-channel submission
+   server cannot finalize a registry record alone. Section 3.3 (draft)
+   requires two independently-submitted entries agreeing on the same
+   ContentHash before the registry finalizes -- this model asks
+   whether a single compromised server can satisfy that requirement
+   by itself.
+
+   WORKING ASSUMPTION, NOT YET CONFIRMED: each submission server signs
+   its registry submission with its own per-server identity key --
+   here, the same key that already protects its content-channel
+   terminus (f_device_sk for F, i_device_sk for I) -- and the
+   registry's write-rule requires two matching submissions bearing
+   signatures from two distinct, known server identities before
+   finalizing. The current draft text says finalization requires two
+   independent submissions but does not specify how the registry
+   verifies that two submissions actually came from two different
+   servers, rather than one server submitting under two guises. This
+   model assumes signature-based identity is the mechanism, since it
+   parallels how the rest of the system already authorizes writes
+   (Property E's gatekeeper signature). If the real design uses
+   something else -- a fixed roster of network addresses, a different
+   credential entirely -- this model does not describe it and the
+   result below would need to be re-derived under that mechanism
+   instead.
+
+   f_device_sk is leaked, representing full compromise of F.
+   i_device_sk stays private, representing I remaining uncompromised.
+   The query asks whether the attacker, holding only F's key, can ever
+   derive I's signing key -- and therefore whether F alone can produce
+   the second, independently-signed submission the registry's
+   write-rule would require. *)
+
+type skey.
+type pkey.
+
+fun pk(skey): pkey.
+fun sign(bitstring, skey): bitstring.
+reduc forall m: bitstring, sk: skey; checksign(sign(m, sk), pk(sk)) = m.
+
+free pub: channel.
+
+free f_device_sk: skey [private].
+free i_device_sk: skey [private].
+
+free content_hash: bitstring.
+
+query attacker(i_device_sk).
+
+let content_server(sk: skey) =
+    !
+    out(pub, sign(content_hash, sk)).
+
+process
+    out(pub, pk(f_device_sk));
+    out(pub, pk(i_device_sk));
+    out(pub, f_device_sk);
+    (
+        content_server(f_device_sk)
+        | content_server(i_device_sk)
+    )

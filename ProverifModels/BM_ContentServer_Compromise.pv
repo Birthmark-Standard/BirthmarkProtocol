@@ -1,0 +1,70 @@
+(* BM_ContentServer_Compromise.pv
+   Property tested: compromising one content-channel submission
+   server (F or I) alone does not yield device-content correlation.
+   f_device_sk is leaked, representing full compromise of that
+   server's relay-terminus key -- the same key that lets it open its
+   own copy of the content channel and compute PacketHash directly
+   by hashing what it received. c_device_sk and v_token_sk stay
+   private, representing the gatekeeper server (C) and the credential
+   validator remaining uncompromised.
+
+   Scope note: this model omits C and the validator's round trip
+   entirely, since neither is reachable from a content-server
+   compromise -- the credential channel (enc_bundle) is encrypted
+   under c_device_pk, a key f_device_sk's leak has no bearing on. The
+   device token stays opaque regardless of whether the credential-side
+   machinery even runs, so it is not modeled here, mirroring the same
+   scoping choice made in BM_Gatekeeper_Compromise.pv for the
+   complementary component. This completes formal coverage of all
+   three components Table 3 claims are independently insufficient for
+   correlation; C and the validator already had dedicated models. *)
+
+type skey.
+type pkey.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey, bitstring): bitstring.
+reduc forall m: bitstring, sk: skey, rnd: bitstring; adec(aenc(m, pk(sk), rnd), sk) = m.
+
+fun hash(bitstring): bitstring.
+
+free pub: channel.
+
+free v_token_sk: skey [private].
+free c_device_sk: skey [private].
+free f_device_sk: skey [private].
+
+free T1: bitstring [private].
+free T2: bitstring [private].
+free imgX: bitstring.
+free imgY: bitstring.
+
+let device(token: bitstring, content: bitstring) =
+    let h = hash(content) in
+    new n: bitstring;
+    let packethash = hash((h, n)) in
+    new rnd_token: bitstring;
+    let enc_token = aenc(token, pk(v_token_sk), rnd_token) in
+    new rnd_bundle: bitstring;
+    let enc_bundle = aenc((enc_token, packethash), pk(c_device_sk), rnd_bundle) in
+    new rnd_content: bitstring;
+    let enc_content = aenc((h, n), pk(f_device_sk), rnd_content) in
+    out(pub, enc_content);
+    out(pub, enc_bundle).
+
+let content_server =
+    !
+    in(pub, enc_content_in: bitstring);
+    let (h_in: bitstring, n_in: bitstring) = adec(enc_content_in, f_device_sk) in
+    let candidate = hash((h_in, n_in)) in
+    out(pub, candidate).
+
+process
+    out(pub, pk(v_token_sk));
+    out(pub, pk(c_device_sk));
+    out(pub, f_device_sk);
+    (
+        device(choice[T1,T2], imgX)
+        | device(choice[T2,T1], imgY)
+        | content_server
+    )
