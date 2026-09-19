@@ -1,29 +1,25 @@
 (* BM_Validator_Compromise.pv
-   Property tested: compromising the credential validator alone does
-   not yield device-content correlation. v_token_sk is leaked to
-   represent full validator compromise. c_device_sk stays private,
-   representing the gatekeeper server (C) remaining uncompromised.
+   Tests whether a compromised credential validator can determine
+   which device produced a piece of content.
 
-   PacketHash reaches the validator only wrapped under blindshare_key,
-   a value C generates fresh per transaction and never shares. A
-   validator holding v_token_sk can now decrypt the device token
-   directly, but still cannot open the wrapped PacketHash, so it gains
-   no way to link the identity it just decrypted to a specific
-   PacketHash or the content it was derived from.
+   v_token_sk, the validator's key, is leaked to the adversary,
+   letting it decrypt the device's token directly. c_device_sk (the
+   gatekeeper server's key) stays private. PacketHash reaches the
+   validator only wrapped under a one-time symmetric key the
+   gatekeeper generates fresh per transaction and never shares, so
+   decrypting the token gives the validator a device identity with
+   nothing to check it against.
 
    Companion to BM_Gatekeeper_Compromise.pv, which tests the reverse
-   compromise (C leaked, validator honest). Neither model tests both
-   compromised at once; Table 3 already treats that combination as
-   succeeding by straightforward composition, not requiring its own
-   model, consistent with how the original Property D/E pair handled
-   the analogous case.
+   single-component compromise. Compromising both the validator and
+   the gatekeeper together is not modeled here; combining their views
+   trivially yields correlation, since the validator would then hold
+   a readable device identity and the gatekeeper already holds
+   PacketHash for the same transaction.
 
-   The content channel (h, n) is wrapped under f_device_pk, standing
-   in for whichever of the two content-channel servers this
-   transaction is addressed to -- the same relay-terminus scheme that
-   already protects the credential channel under c_device_pk.
-   f_device_sk stays private throughout; this model tests the
-   validator's compromise, not the content-channel server's. *)
+   Result: observational equivalence holds. A compromised validator,
+   even holding the device's identity in the clear, gains no way to
+   link it to specific content. *)
 
 type skey.
 type pkey.
