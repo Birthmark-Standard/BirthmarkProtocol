@@ -1,35 +1,25 @@
 (* BM_Baseline_Noncorrelation.pv
-   Properties tested (combined, as in the original): Device
-   Non-Correlation, Registry Observer Non-Identification, Submission
-   Server Blindness -- the no-compromise baseline. A single device
-   with a fixed token (T1) and ambiguous content (contentA or
-   contentB) is tested for observational equivalence: can anything
-   public reveal which content that device used?
+   Two independent, non-interacting branches, run as one process.
 
-   Rebuilt for the current mechanism: the device's credential packet
-   goes to the gatekeeper server (C), not directly to the validator.
-   C performs the round trip with the validator over private channels
-   (gate_to_val / val_to_gate, standing in for the CV-transit/
-   VC-transit encrypted legs -- not separately modeled here since
-   nothing is leaked in this baseline test and they carry no bearing
-   on the property). C confirms the returned, still-wrapped PacketHash
-   matches what it retained, then posts PacketHash alone to the match
-   board. A separate content-side process (standing in for F or I)
-   independently recomputes its own candidate from the content channel
-   and checks it against the match board before posting to the public
-   registry.
+   Branch 1 (Birthmark): a device sends a credential packet
+   (encrypted token + PacketHash) to a gatekeeper server, and a
+   content packet (ContentHash, nonce) to a content-channel server,
+   over disjoint, independently-encrypted channels. The gatekeeper
+   wraps PacketHash under a fresh one-time key before sending it to
+   the validator for a signature, so the validator never sees it in
+   the clear. The device is tested with a fixed token and a choice of
+   two contents (contentA/contentB); the query is whether any public
+   output lets an observer tell which content that device used.
 
-   The camera/manufacturer branch is an unrelated baseline comparison
-   system, not part of the Birthmark mechanism, and is unchanged.
+   Branch 2 (camera/manufacturer baseline): an unrelated, simpler
+   comparison system -- a camera encrypts a credential directly to a
+   manufacturer, which authorizes posting to a blockchain. Tested the
+   same way, with a fixed device and a choice of two credentials.
 
-   The content channel (h, n) is wrapped under f_device_pk, standing
-   in for whichever of the two content-channel servers this
-   transaction is addressed to -- the same relay-terminus scheme that
-   already protects the credential channel under c_device_pk.
-   content_matcher_a holds f_device_sk and decrypts it, matching how
-   it would legitimately receive its own copy of the content channel;
-   f_device_sk is never leaked, consistent with this being the
-   no-compromise baseline. *)
+   Result: observational equivalence holds for both branches at once,
+   which is a stronger result than confirming each in isolation -- an
+   attacker with access to both branches simultaneously still cannot
+   distinguish either swap. *)
 
 type key. type skey. type pkey.
 fun pk(skey): pkey.
