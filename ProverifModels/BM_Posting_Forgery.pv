@@ -1,0 +1,32 @@
+(* BM_Posting_Forgery.pv
+   Tests whether anyone other than the credential validator can
+   produce a signature the match board would accept over a posted
+   record hash.
+
+   v_token_sk (the validator's signing key) stays private throughout;
+   nothing is leaked. The validator process is unboundedly replicated,
+   modeling arbitrarily many signing operations rather than just one.
+   The query asks whether the attacker can ever derive v_token_sk.
+
+   Result: the key never becomes derivable. No party -- not the
+   gatekeeper server, not a content-channel server, not any
+   combination of them -- can ever produce a signature the match
+   board would accept without it. *)
+
+type skey. type pkey.
+fun pk(skey): pkey.
+fun sign(bitstring, skey): bitstring.
+reduc forall m:bitstring, sk:skey; checksign(sign(m, sk), pk(sk)) = m.
+
+free pub: channel.
+free v_token_sk: skey [private]. letfun v_token_pk = pk(v_token_sk).
+free enc_packethash: bitstring [private].
+
+let validator =
+    out(pub, sign(enc_packethash, v_token_sk)).
+
+query attacker(v_token_sk).
+
+process
+    out(pub, v_token_pk);
+    (!validator)
