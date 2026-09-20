@@ -1,56 +1,45 @@
-# Birthmark Protocol — ProVerif Formal Verification
+# Birthmark Protocol
 
-This folder contains the ProVerif models supporting the privacy and integrity claims made
-in "The Birthmark Protocol: Achieving Semantic Non-Assembly in Media Provenance." Each
-model is self-contained and independently runnable; none depends on any other file in
-this folder.
+The Birthmark Protocol is a two-channel provenance architecture for media authentication.
+It separates a capture device's credential from its content's identifying hash across
+disjoint delivery paths and encryption boundaries, so that no single component's
+compromise — including the credential validator's — is sufficient to determine which
+device produced which content. Correlation requires coordinated compromise across
+components, not just one.
 
-For the architecture these models formalize — the capture device, the gatekeeper server,
-the credential validator, the content-channel servers, the match board, and the
-registry — see the paper itself. This README indexes what each model tests and what
-result to expect; it isn't a substitute for reading the paper.
+The architecture formalizes the privacy property this separation targets as **Semantic
+Non-Assembly (SNA)**: a class of privacy guarantee characterized by the information yield
+of component exposure, not the difficulty of achieving it. Full definitions, the threat
+model, and the formal privacy properties are in the paper (see Citation, below).
 
-## Running a model
+## Repository contents
 
-Each file is a complete ProVerif specification. With ProVerif installed:
+- **`ProverifModels/`** — the ProVerif formal verification models establishing the
+  protocol's privacy and integrity properties, with a README indexing what each model
+  tests and how to run it.
 
-```
-proverif BM_Baseline_Noncorrelation.pv
-```
+This repository holds the protocol's formal architecture and its verification artifacts.
+The reference deployment for photographic media — the Birthmark Standard — is
+documented separately; the protocol here is deployment-agnostic and does not assume any
+particular capture hardware or media type.
 
-(or `proverif.exe` on Windows). No arguments or build steps beyond that.
+## Citation
 
-## What each model tests
+Sam Ryan. "The Birthmark Protocol: Achieving Semantic Non-Assembly in Media
+Provenance."
 
-| File | Establishes | Tests | Result |
-|---|---|---|---|
-| `BM_Baseline_Noncorrelation.pv` | Properties A, B, C | No compromise: can a passive observer tell which content a given device authenticated, or identify a device from the registry, or from the content channel alone? | Observational equivalence is true |
-| `BM_Gatekeeper_Compromise.pv` | Property D | Gatekeeper server's key leaked alone — does that reveal which device produced which content? | Observational equivalence is true |
-| `BM_Validator_Compromise.pv` | Property E | Validator's key leaked alone — same question | Observational equivalence is true |
-| `BM_ContentServer_Compromise.pv` | Property F | A content-channel server's key leaked alone — same question | Observational equivalence is true |
-| `BM_Posting_Forgery.pv` | Property G | Can anyone other than the validator produce a signature the match board would accept? | `not attacker(v_token_sk)` is true |
-| `BM_Registry_Convergence.pv` | Property H | Can one compromised content-channel server alone produce both signatures the registry requires? | `not attacker(i_device_sk)` is true |
+*[Full venue, date, and DOI/arXiv identifier to be added once available. The paper is
+currently in peer review; this repository's formal verification artifacts are already
+final and citable independent of that process.]*
 
-## Reading the results
+## License
 
-Two different proof techniques are used, and they answer different questions:
+Released under Apache 2.0. This work is published as prior art: the architecture and its
+formal verification are intended as public infrastructure, open for anyone to build on,
+rather than a position any single organization can enclose.
 
-- **Observational equivalence** (Properties A–F): the model runs two scenarios side by
-  side — e.g., a device authenticating one piece of content versus another — and asks
-  whether any adversary, given everything it's allowed to observe or leak in that model,
-  can tell which scenario it's in. "True" means it can't: the property holds.
-- **Secrecy query, `not attacker(X)`** (Properties G, H): asks whether a specific key
-  ever becomes derivable by the adversary. "True" means it never does, which is what
-  makes forging a signature without that key infeasible.
+## Status
 
-## Naming
-
-Each file's key variables follow the paper's own terms, lowercased and with underscores
-in place of hyphens (ProVerif identifiers can't contain hyphens): `packethash` for
-PacketHash, `v_token_pk`/`v_token_sk` for the validator's keypair, `c_device_pk`/
-`c_device_sk` for the gatekeeper server's relay-terminus key, `f_device_sk`/`i_device_sk`
-for the two content-channel servers' keys, and `blindshare_key` for BlindShare_key.
-
-Property and file names are otherwise independent of each other by design: a file is
-named for what it tests, not for a letter, so that the mapping in the table above is the
-only place that pairing needs to be looked up.
+Active. The formal properties in `ProverifModels/` are stable and independently
+verifiable with ProVerif. The paper itself may still change during peer review;
+this repository is updated to stay consistent with whatever the current version claims.
