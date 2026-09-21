@@ -4,18 +4,19 @@
 
    v_token_sk, the validator's key, is leaked to the adversary,
    letting it decrypt the device's token directly. c_device_sk (the
-   gatekeeper server's key) stays private. PacketHash reaches the
+   credential processor's key) stays private. PacketHash reaches the
    validator only wrapped under a one-time symmetric key the
-   gatekeeper generates fresh per transaction and never shares, so
-   decrypting the token gives the validator a device identity with
-   nothing to check it against.
+   credential processor generates fresh per transaction and never
+   shares, so decrypting the token gives the validator a device
+   identity with nothing to check it against.
 
-   Companion to BM_Gatekeeper_Compromise.pv, which tests the reverse
-   single-component compromise. Compromising both the validator and
-   the gatekeeper together is not modeled here; combining their views
-   trivially yields correlation, since the validator would then hold
-   a readable device identity and the gatekeeper already holds
-   PacketHash for the same transaction.
+   Companion to BM_CredentialProcessor_Compromise.pv, which tests the
+   reverse single-component compromise. Compromising both the
+   validator and the credential processor together is not modeled
+   here; combining their views trivially yields correlation, since
+   the validator would then hold a readable device identity and the
+   credential processor already holds PacketHash for the same
+   transaction.
 
    Result: observational equivalence holds. A compromised validator,
    even holding the device's identity in the clear, gains no way to
@@ -61,7 +62,7 @@ let device(token: bitstring, content: bitstring) =
     out(pub, enc_content);
     out(pub, enc_bundle).
 
-let gatekeeper =
+let credential_processor =
     !
     in(pub, enc_bundle_in: bitstring);
     let (enc_token_in: bitstring, packethash_in: bitstring) = adec(enc_bundle_in, c_device_sk) in
@@ -83,6 +84,6 @@ process
     (
         device(choice[T1,T2], imgX)
         | device(choice[T2,T1], imgY)
-        | gatekeeper
+        | credential_processor
         | validator
     )
