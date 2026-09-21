@@ -3,11 +3,11 @@
    which device produced a piece of content it has received.
 
    f_device_sk, the content-channel server's own relay-terminus key,
-   is leaked to the adversary. c_device_sk (the gatekeeper server's
-   key) and v_token_sk (the validator's key) stay private -- the
-   credential channel, which carries the device's encrypted token,
-   never reaches the content-channel server at all, so its compromise
-   has no bearing on the token's secrecy.
+   is leaked to the adversary. c_device_sk (the credential
+   processor's key) and v_token_sk (the validator's key) stay
+   private -- the credential channel, which carries the device's
+   encrypted token, never reaches the content-channel server at
+   all, so its compromise has no bearing on the token's secrecy.
 
    Result: observational equivalence holds. A compromised
    content-channel server can read ContentHash and the nonce and
