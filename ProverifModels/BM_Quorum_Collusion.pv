@@ -1,0 +1,167 @@
+(* BM_Quorum_Collusion.pv
+   Tests whether two of three colluding gatekeepers can force the
+   two-of-three quorum to accept a PacketHash the validator never
+   approved -- the scenario a single-gatekeeper compromise (tested in
+   BM_Quorum_Forgery.pv) cannot reach on its own, since two boards
+   already satisfy the quorum requirement by themselves.
+
+   g1_sk/g1_sign_sk and g2_sk/g2_sign_sk (gatekeepers 1 and 2's
+   complete key sets, both terminus and signing) are leaked, giving
+   the attacker full control of two of the three gatekeepers and full
+   read/write access to match_board_1 and match_board_2 directly --
+   neither is modeled as its own process, since the leaked keys
+   already give the attacker everything those processes would do,
+   including signing arbitrary messages under either key. g3_sk/
+   g3_sign_sk stay private: the third gatekeeper remains honest,
+   independently verifying both the validator's signature (via
+   BlindShare_key) and C's signature before counter-signing and
+   posting. c_sign_sk stays private throughout: C signs a PacketHash
+   only after seeing genuine validator approval, the same discipline
+   it already applies.
+
+   With two boards already fully attacker-controlled, reaching quorum
+   is trivial for the attacker on its own two boards -- the real
+   question is whether it can do so for a value C never actually
+   signed, which requires forging a valid signature under c_sign_sk
+   without holding it. The query checks the same correspondence as
+   BM_Quorum_Forgery.pv: does reaching quorum ever happen without a
+   preceding genuine validator approval for that value. *)
+
+type key. type skey. type pkey.
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey, bitstring): bitstring.
+reduc forall m:bitstring, sk:skey, rnd:bitstring; adec(aenc(m, pk(sk), rnd), sk) = m.
+fun senc(bitstring, key): bitstring.
+reduc forall m:bitstring, k:key; sdec(senc(m, k), k) = m.
+fun sign(bitstring, skey): bitstring.
+reduc forall m:bitstring, sk:skey; checksign(sign(m, sk), pk(sk)) = m.
+fun hash(bitstring): bitstring.
+
+free pub: channel.
+free c_to_val: channel [private].
+free val_to_c: channel [private].
+free match_board_1: channel.
+free match_board_2: channel.
+free match_board_3: channel [private].
+free quorum_out: channel [private].
+free v_ok: bitstring.
+free v_no: bitstring.
+
+free v_token_sk: skey [private]. letfun v_token_pk = pk(v_token_sk).
+free c_device_sk: skey [private]. letfun c_device_pk = pk(c_device_sk).
+free c_sign_sk: skey [private]. letfun c_sign_pk = pk(c_sign_sk).
+free g1_sk: skey [private].
+free g1_sign_sk: skey [private].
+free g2_sk: skey [private].
+free g2_sign_sk: skey [private].
+free g3_sk: skey [private]. letfun g3_pk = pk(g3_sk).
+free g3_sign_sk: skey [private]. letfun g3_sign_pk = pk(g3_sign_sk).
+
+free T1: bitstring [private].
+free T2: bitstring [private].
+free imgX: bitstring.
+
+event validator_approved(bitstring).
+event quorum_reached(bitstring).
+
+let device(token: bitstring, content: bitstring) =
+    let h = hash(content) in
+    new n: bitstring;
+    let packethash = hash((h, n)) in
+    new rnd_token: bitstring;
+    let enc_token = aenc(token, v_token_pk, rnd_token) in
+    new rnd_bundle: bitstring;
+    let enc_bundle = aenc((enc_token, packethash), c_device_pk, rnd_bundle) in
+    out(pub, enc_bundle).
+
+let credential_processor =
+    !
+    in(pub, enc_bundle_in: bitstring);
+    let (enc_token_in: bitstring, packethash_in: bitstring) = adec(enc_bundle_in, c_device_sk) in
+    new blindshare_key: key;
+    let wrapped = senc(packethash_in, blindshare_key) in
+    out(c_to_val, (enc_token_in, wrapped));
+    in(val_to_c, (decision: bitstring, wrapped_signed: bitstring));
+    let wrapped_checked = checksign(wrapped_signed, v_token_pk) in
+    let packethash_confirmed = sdec(wrapped_checked, blindshare_key) in
+    if (decision = v_ok) && (packethash_confirmed = packethash_in) then
+    (
+        event validator_approved(packethash_in);
+        let c_signed = sign(packethash_in, c_sign_sk) in
+        new rnd_g1: bitstring;
+        let pkt_g1 = aenc((packethash_in, wrapped_signed, blindshare_key, c_signed), pk(g1_sk), rnd_g1) in
+        new rnd_g2: bitstring;
+        let pkt_g2 = aenc((packethash_in, wrapped_signed, blindshare_key, c_signed), pk(g2_sk), rnd_g2) in
+        new rnd_g3: bitstring;
+        let pkt_g3 = aenc((packethash_in, wrapped_signed, blindshare_key, c_signed), g3_pk, rnd_g3) in
+        ( out(pub, pkt_g1) | out(pub, pkt_g2) | out(pub, pkt_g3) )
+    ).
+
+let validator =
+    !
+    in(c_to_val, (enc_token_in: bitstring, wrapped_in: bitstring));
+    let token_in = adec(enc_token_in, v_token_sk) in
+    if (token_in = T1) || (token_in = T2) then
+        out(val_to_c, (v_ok, sign(wrapped_in, v_token_sk)))
+    else
+        out(val_to_c, (v_no, sign(wrapped_in, v_token_sk))).
+
+let gatekeeper_3 =
+    !
+    in(pub, pkt_in: bitstring);
+    let (p: bitstring, sig: bitstring, k: key, c_sig: bitstring) = adec(pkt_in, g3_sk) in
+    let sig_checked = checksign(sig, v_token_pk) in
+    let p_confirmed = sdec(sig_checked, k) in
+    let c_checked = checksign(c_sig, c_sign_pk) in
+    if (p_confirmed = p) && (c_checked = p) then
+    (
+        let g3_signed = sign(c_sig, g3_sign_sk) in
+        ( out(match_board_3, g3_signed) | out(match_board_3, g3_signed) )
+    ).
+
+let quorum_12 =
+    !
+    in(match_board_1, s1: bitstring);
+    in(match_board_2, s2: bitstring);
+    let c1 = checksign(s1, pk(g1_sign_sk)) in
+    let p1 = checksign(c1, c_sign_pk) in
+    let c2 = checksign(s2, pk(g2_sign_sk)) in
+    let p2 = checksign(c2, c_sign_pk) in
+    if (p1 = p2) then
+    ( event quorum_reached(p1); out(quorum_out, p1) ).
+
+let quorum_13 =
+    !
+    in(match_board_1, s1: bitstring);
+    in(match_board_3, s3: bitstring);
+    let c1 = checksign(s1, pk(g1_sign_sk)) in
+    let p1 = checksign(c1, c_sign_pk) in
+    let c3 = checksign(s3, g3_sign_pk) in
+    let p3 = checksign(c3, c_sign_pk) in
+    if (p1 = p3) then
+    ( event quorum_reached(p1); out(quorum_out, p1) ).
+
+let quorum_23 =
+    !
+    in(match_board_2, s2: bitstring);
+    in(match_board_3, s3: bitstring);
+    let c2 = checksign(s2, pk(g2_sign_sk)) in
+    let p2 = checksign(c2, c_sign_pk) in
+    let c3 = checksign(s3, g3_sign_pk) in
+    let p3 = checksign(c3, c_sign_pk) in
+    if (p2 = p3) then
+    ( event quorum_reached(p2); out(quorum_out, p2) ).
+
+query p: bitstring; event(quorum_reached(p)) ==> event(validator_approved(p)).
+
+process
+    out(pub, v_token_pk); out(pub, c_device_pk); out(pub, c_sign_pk);
+    out(pub, g1_sk); out(pub, g1_sign_sk); out(pub, g2_sk); out(pub, g2_sign_sk);
+    out(pub, g3_pk); out(pub, g3_sign_pk);
+    (
+        (!device(T1, imgX))
+        | (!credential_processor)
+        | (!validator)
+        | (!gatekeeper_3)
+        | (!quorum_12) | (!quorum_13) | (!quorum_23)
+    )
