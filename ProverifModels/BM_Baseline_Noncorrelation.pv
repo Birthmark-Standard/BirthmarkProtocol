@@ -12,15 +12,20 @@
    not merely whether a single device's own content stays confidential.
 
    The full path is modeled: device to credential processor (C) to
-   validator and back; C fanning the validation packet out to three
-   independently-keyed gatekeepers; each gatekeeper posting to its own
-   match board only after verifying the validator's signature and the
-   BlindShare_key pairing; a two-of-three quorum across the three
-   boards, modeled as three parallel race pairs; and both content-
-   channel servers (F, I) independently checking their own computed
-   candidate against the quorum's output before posting to the
-   registry. No party is compromised here -- every private key stays
-   private throughout.
+   validator and back; C signing the approved PacketHash with its own
+   submission-server signing key (c_sign_sk) once genuine approval is
+   confirmed, then fanning the validation packet out to three
+   independently-keyed gatekeepers -- each also a submission server,
+   carrying the same kind of signing key (g1_sign_sk, g2_sign_sk,
+   g3_sign_sk) as C's, just belonging to a different server for this
+   transaction's role. Each gatekeeper independently verifies both the
+   validator's signature (via BlindShare_key) and C's signature before
+   counter-signing and posting to its own paired board. A two-of-three
+   quorum across the three boards is modeled as three parallel race
+   pairs, each requiring both signatures on both postings to verify.
+   Both content-channel servers (F, I) independently check their own
+   computed candidate against the quorum's output. No party is
+   compromised here -- every private key stays private throughout.
 
    Result: observational equivalence holds. No combination of public
    outputs -- the registry posting, either content-channel server's
@@ -50,11 +55,15 @@ free v_no: bitstring.
 
 free v_token_sk: skey [private]. letfun v_token_pk = pk(v_token_sk).
 free c_device_sk: skey [private]. letfun c_device_pk = pk(c_device_sk).
+free c_sign_sk: skey [private]. letfun c_sign_pk = pk(c_sign_sk).
 free f_device_sk: skey [private]. letfun f_device_pk = pk(f_device_sk).
 free i_device_sk: skey [private]. letfun i_device_pk = pk(i_device_sk).
 free g1_sk: skey [private]. letfun g1_pk = pk(g1_sk).
+free g1_sign_sk: skey [private]. letfun g1_sign_pk = pk(g1_sign_sk).
 free g2_sk: skey [private]. letfun g2_pk = pk(g2_sk).
+free g2_sign_sk: skey [private]. letfun g2_sign_pk = pk(g2_sign_sk).
 free g3_sk: skey [private]. letfun g3_pk = pk(g3_sk).
+free g3_sign_sk: skey [private]. letfun g3_sign_pk = pk(g3_sign_sk).
 
 free T1: bitstring [private].
 free T2: bitstring [private].
@@ -89,12 +98,13 @@ let credential_processor =
     let packethash_confirmed = sdec(wrapped_checked, blindshare_key) in
     if (decision = v_ok) && (packethash_confirmed = packethash_in) then
     (
+        let c_signed = sign(packethash_in, c_sign_sk) in
         new rnd_g1: bitstring;
-        let pkt_g1 = aenc((packethash_in, wrapped_signed, blindshare_key), g1_pk, rnd_g1) in
+        let pkt_g1 = aenc((packethash_in, wrapped_signed, blindshare_key, c_signed), g1_pk, rnd_g1) in
         new rnd_g2: bitstring;
-        let pkt_g2 = aenc((packethash_in, wrapped_signed, blindshare_key), g2_pk, rnd_g2) in
+        let pkt_g2 = aenc((packethash_in, wrapped_signed, blindshare_key, c_signed), g2_pk, rnd_g2) in
         new rnd_g3: bitstring;
-        let pkt_g3 = aenc((packethash_in, wrapped_signed, blindshare_key), g3_pk, rnd_g3) in
+        let pkt_g3 = aenc((packethash_in, wrapped_signed, blindshare_key, c_signed), g3_pk, rnd_g3) in
         ( out(pub, pkt_g1) | out(pub, pkt_g2) | out(pub, pkt_g3) )
     ).
 
@@ -110,48 +120,72 @@ let validator =
 let gatekeeper_1 =
     !
     in(pub, pkt_in: bitstring);
-    let (p: bitstring, sig: bitstring, k: key) = adec(pkt_in, g1_sk) in
+    let (p: bitstring, sig: bitstring, k: key, c_sig: bitstring) = adec(pkt_in, g1_sk) in
     let sig_checked = checksign(sig, v_token_pk) in
     let p_confirmed = sdec(sig_checked, k) in
-    if (p_confirmed = p) then
-    ( out(match_board_1, p) | out(match_board_1, p) ).
+    let c_checked = checksign(c_sig, c_sign_pk) in
+    if (p_confirmed = p) && (c_checked = p) then
+    (
+        let g1_signed = sign(c_sig, g1_sign_sk) in
+        ( out(match_board_1, g1_signed) | out(match_board_1, g1_signed) )
+    ).
 
 let gatekeeper_2 =
     !
     in(pub, pkt_in: bitstring);
-    let (p: bitstring, sig: bitstring, k: key) = adec(pkt_in, g2_sk) in
+    let (p: bitstring, sig: bitstring, k: key, c_sig: bitstring) = adec(pkt_in, g2_sk) in
     let sig_checked = checksign(sig, v_token_pk) in
     let p_confirmed = sdec(sig_checked, k) in
-    if (p_confirmed = p) then
-    ( out(match_board_2, p) | out(match_board_2, p) ).
+    let c_checked = checksign(c_sig, c_sign_pk) in
+    if (p_confirmed = p) && (c_checked = p) then
+    (
+        let g2_signed = sign(c_sig, g2_sign_sk) in
+        ( out(match_board_2, g2_signed) | out(match_board_2, g2_signed) )
+    ).
 
 let gatekeeper_3 =
     !
     in(pub, pkt_in: bitstring);
-    let (p: bitstring, sig: bitstring, k: key) = adec(pkt_in, g3_sk) in
+    let (p: bitstring, sig: bitstring, k: key, c_sig: bitstring) = adec(pkt_in, g3_sk) in
     let sig_checked = checksign(sig, v_token_pk) in
     let p_confirmed = sdec(sig_checked, k) in
-    if (p_confirmed = p) then
-    ( out(match_board_3, p) | out(match_board_3, p) ).
+    let c_checked = checksign(c_sig, c_sign_pk) in
+    if (p_confirmed = p) && (c_checked = p) then
+    (
+        let g3_signed = sign(c_sig, g3_sign_sk) in
+        ( out(match_board_3, g3_signed) | out(match_board_3, g3_signed) )
+    ).
 
 let quorum_12 =
     !
-    in(match_board_1, p1: bitstring);
-    in(match_board_2, p2: bitstring);
+    in(match_board_1, s1: bitstring);
+    in(match_board_2, s2: bitstring);
+    let c1 = checksign(s1, g1_sign_pk) in
+    let p1 = checksign(c1, c_sign_pk) in
+    let c2 = checksign(s2, g2_sign_pk) in
+    let p2 = checksign(c2, c_sign_pk) in
     if (p1 = p2) then
     ( out(quorum_out, p1) | out(quorum_out, p1) ).
 
 let quorum_13 =
     !
-    in(match_board_1, p1: bitstring);
-    in(match_board_3, p3: bitstring);
+    in(match_board_1, s1: bitstring);
+    in(match_board_3, s3: bitstring);
+    let c1 = checksign(s1, g1_sign_pk) in
+    let p1 = checksign(c1, c_sign_pk) in
+    let c3 = checksign(s3, g3_sign_pk) in
+    let p3 = checksign(c3, c_sign_pk) in
     if (p1 = p3) then
     ( out(quorum_out, p1) | out(quorum_out, p1) ).
 
 let quorum_23 =
     !
-    in(match_board_2, p2: bitstring);
-    in(match_board_3, p3: bitstring);
+    in(match_board_2, s2: bitstring);
+    in(match_board_3, s3: bitstring);
+    let c2 = checksign(s2, g2_sign_pk) in
+    let p2 = checksign(c2, c_sign_pk) in
+    let c3 = checksign(s3, g3_sign_pk) in
+    let p3 = checksign(c3, c_sign_pk) in
     if (p2 = p3) then
     ( out(quorum_out, p2) | out(quorum_out, p2) ).
 
@@ -174,8 +208,10 @@ let content_matcher_i =
     out(registry, h).
 
 process
-    out(pub, v_token_pk); out(pub, c_device_pk); out(pub, f_device_pk); out(pub, i_device_pk);
-    out(pub, g1_pk); out(pub, g2_pk); out(pub, g3_pk);
+    out(pub, v_token_pk); out(pub, c_device_pk); out(pub, c_sign_pk);
+    out(pub, f_device_pk); out(pub, i_device_pk);
+    out(pub, g1_pk); out(pub, g1_sign_pk); out(pub, g2_pk); out(pub, g2_sign_pk);
+    out(pub, g3_pk); out(pub, g3_sign_pk);
     (
         (!device(choice[T1,T2], contentA))
         | (!device(choice[T2,T1], contentB))
