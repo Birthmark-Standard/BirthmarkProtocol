@@ -8,10 +8,16 @@
    modeling arbitrarily many signing operations rather than just one.
    The query asks whether the attacker can ever derive v_token_sk.
 
-   Result: the key never becomes derivable. No party -- not the
-   gatekeeper server, not a content-channel server, not any
-   combination of them -- can ever produce a signature the match
-   board would accept without it. *)
+   Result: the key never becomes derivable. No party -- not a
+   gatekeeper, not the credential processor, not a content-channel
+   server, not any combination of them -- can ever produce this
+   signature without it. Its role has shifted from the original
+   single-board design: it no longer gates what a board accepts
+   directly, since boards now check the credential processor's own
+   signature (BM_Quorum_Forgery.pv, BM_Quorum_Collusion.pv). It
+   still gates whether the credential processor is willing to sign
+   a PacketHash in the first place, which is what those two models
+   depend on this key's secrecy to hold. *)
 
 type skey. type pkey.
 fun pk(skey): pkey.
