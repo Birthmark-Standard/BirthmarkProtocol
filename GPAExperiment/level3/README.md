@@ -29,6 +29,7 @@ citations. Results are in [`RESULTS.md`](RESULTS.md).
 pip install -r requirements.txt
 python -m pytest -q tests                        # ~1 min
 python -m birthmark_l3.sweep --jobs all          # ~70 min on 4 cores; resumable
+python -m birthmark_l3.sweep --jobs harden     # optional: sequencing attack with added holds (~35 min)
 python -m birthmark_l3.report
 ```
 
@@ -107,3 +108,5 @@ All of them use `scipy.optimize.linear_sum_assignment` and Monte Carlo likelihoo
   - *true terminal labels*: the workbook's original terminal-timing attack.
 
 **Calibration.** For each prediction, the gap between the top and runner-up scores. Reported as accuracy in the top 10% of gaps and at fixed gaps (≥ 1, 2 and 3 nats), plus a reliability table of the attacker's own posterior.
+
+**Hardening check.** `Config(cv_hold=True)` adds a lottery hold at C before CV-1 and at the validator before CV-2. `Config(reg_hold=True)` adds one at F and I between seeing quorum and posting. The `harden_*` jobs run only the sequencing attack across the sweep under each hold. The attacker's model is rebuilt for each variant. Neither option is part of the specified protocol; see RESULTS.md.

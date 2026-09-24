@@ -250,7 +250,7 @@ def _hardening_figure(out, main, names, Ls, xs, plt):
         ch = np.array([b["empirical_chance"] for b in blocks])
         ax[0].errorbar(Ls, acc, yerr=[acc - lo, hi - acc], fmt="o-", color=col, label=label, ms=5, lw=2,
                        capsize=2, mec="#fcfcfb", mew=1)
-        ax[1].plot(Ls, acc / ch, "o-", color=col, label=label, ms=5, lw=2, mec="#fcfcfb", mew=1)
+        ax[1].plot(Ls, acc / ch, "o", color=col, label=label, ms=6, mec="#fcfcfb", mew=1)
     ax[0].plot(xs, 1 / xs, color="black", lw=1, ls=":", label="1/L")
     ax[0].set_yscale("log")
     ax[0].set_xlabel("L (workbook Little's-law anonymity set)")
@@ -261,7 +261,7 @@ def _hardening_figure(out, main, names, Ls, xs, plt):
     ax[1].set_ylim(bottom=0)
     ax[1].set_xlabel("L")
     ax[1].set_ylabel("Accuracy / random-assignment baseline")
-    ax[1].set_title("Residual signal above true chance")
+    ax[1].set_title("Residual signal above true chance (one point per setting)")
     ax[1].legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(OUT / "hardening.png", dpi=150)
