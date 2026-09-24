@@ -3,7 +3,7 @@
 Can a global passive observer, with no compromised nodes, link a device's credential
 submission to its content submission from network timing and size alone?
 
-The build spec is `../Birthmark_Traffic_Analysis_Catalog.xlsx`. The paper
+The build spec is `../Birthmark_Traffic_Analysis_Catalog.xlsx`. The copy in this repo is the corrected version: it takes in this experiment's findings and records its outcome on a new *Level 3 Results* tab. The paper
 (`../../Docs/Birthmark_Protocol_v58.docx`) was used only to resolve the workbook's section
 citations. Results are in [`RESULTS.md`](RESULTS.md).
 
@@ -12,7 +12,7 @@ citations. Results are in [`RESULTS.md`](RESULTS.md).
 | Path | What it is |
 |---|---|
 | `birthmark_l3/params.py` | Every numeric input, tagged `[WB cell]`, `[PAPER §]`, `[DECISION]` or `[DEFAULT]` |
-| `birthmark_l3/crypto_legs.py` | Byte-exact construction of every Leg Catalog leg with real ECIES / AES-GCM / Ed25519, and a check against the Size Verification tab |
+| `birthmark_l3/crypto_legs.py` | Byte-exact construction of every Leg Catalog leg with real ECIES / AES-GCM / Ed25519. A test checks it against the corrected Size Verification tab (relay legs 146–235 B, GK 289 B) |
 | `birthmark_l3/wire_pools.py` | Wire-size pools measured from real traffic: 360 TLS sessions run through Python `ssl` (OpenSSL 3), 600 DNSSEC-signed EDNS0 responses (dnspython), and Birthmark packets pushed through real TLS 1.3 |
 | `birthmark_l3/lottery.py` | The "chance of transit" lottery and the Monte Carlo likelihoods |
 | `birthmark_l3/refsim.py` | Reference simulator: a literal discrete-event network. Every node holds packets and rolls the lottery on every tick. Every packet is a real ciphertext, opened and re-sealed hop by hop. The full protocol runs through validator, gatekeepers, boards and registry gossip |
@@ -55,8 +55,8 @@ python -m birthmark_l3.report
 
 | Question | Decision |
 |---|---|
-| Whose clock do the 10 s ticks follow? | **Node-wide clock** with a random phase per node, so a release carries no trace of the packet's arrival phase. A per-packet-timer probe measures the phase leak this avoids. |
-| Device-side clock | **Independent random phase per channel.** A probe with one shared device clock measures the leak this avoids. |
+| Whose clock do the 10 s ticks follow? | **Node-wide clock** with a random phase per node, so a release carries no trace of the packet's arrival phase. This is now the spec: Level 3 Experiment Design!B13. A per-packet-timer probe measures the phase leak it avoids. |
+| Device-side clock | **Independent, freshly drawn random phase per channel** (Level 3 Experiment Design!B4, B13). A probe with one shared device clock measures the leak this avoids. |
 | Is the observer told which arrivals are terminal? | **No oracle.** The observer sees (link, time, size) and must discover chains itself: Stage 1 reconstructs 3-hop chains, and Stage 2 groups them by origin time. |
 | TLS record type / protocol | **The observer reads it** in the sweep, because a real GPA can. Blend-in is also reported with it ignored. |
 | External sources | **All ingress is anonymised.** Devices and background clients both appear as "external → node". Device IPs are used only in the separate origin-anchored section. |

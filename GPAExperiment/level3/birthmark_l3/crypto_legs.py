@@ -211,9 +211,9 @@ def reg_posting(content_hash: bytes, server: ServerKeys) -> bytes:
 
 
 # --------------------------------------------------------------------------- size check
-WORKBOOK_RAW_SIZES = {  # Size Verification!D column
-    "Cred-1": 186, "Cred-2": 186, "Cred-3": 170,
-    "ContA-1": 113, "ContA-2": 113, "ContA-3": 97,
+WORKBOOK_RAW_SIZES = {  # Size Verification!D column (corrected workbook: nested payload-key layer included)
+    "Cred-1": 235, "Cred-2": 235, "Cred-3": 219,
+    "ContA-1": 162, "ContA-2": 162, "ContA-3": 146,
     "GK": 289, "CV-1": 178, "CV-2": 165, "Reg": 96,
 }
 

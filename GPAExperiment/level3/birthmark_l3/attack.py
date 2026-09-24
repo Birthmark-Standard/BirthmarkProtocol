@@ -55,6 +55,7 @@ class Likelihoods:
     origin_max: float
     seq_max: float
     term_max: float
+    seq_samples: np.ndarray = None   # kept for tests: the Monte-Carlo draws behind `seq`
 
 
 def _lat(rng, rng_ms, n):
@@ -99,14 +100,21 @@ def build_likelihoods(cfg: P.Config, n=1_000_000, seed=12345) -> Likelihoods:
         return t
     t0 = np.zeros(n)
     arr_c = chain(t0)
-    cv2 = (arr_c + _proc(rng, n) + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n)
-           + rng.uniform(*P.VALIDATOR_PROC_MS, n) / 1000 + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n))
+    cv1 = relay(arr_c) if cfg.cv_hold else arr_c + _proc(rng, n)
+    cv2 = cv1 + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n) + rng.uniform(*P.VALIDATOR_PROC_MS, n) / 1000
+    if cfg.cv_hold:
+        cv2 = relay(cv2)
+    cv2 = cv2 + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n)
     ph_c = rng.uniform(0, P.TICK_S, n)
     posts = np.stack([LT.release_time(rng, cv2, ph_c, cfg.relay_clock, on) + _proc(rng, n)
                       + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n) + rng.uniform(*P.GATEKEEPER_PROC_MS, n) / 1000
                       for _ in range(3)], 1)
     quorum = np.sort(posts, 1)[:, 1]
-    reg = LT.next_tick(np.maximum(quorum, chain(t0)), rng.uniform(0, P.TICK_S, n)) + _proc(rng, n)
+    ph_f = rng.uniform(0, P.TICK_S, n)
+    reg = LT.next_tick(np.maximum(quorum, chain(t0)), ph_f)
+    if cfg.reg_hold:
+        reg = LT.release_time(rng, reg, ph_f, cfg.relay_clock, on)
+    reg = reg + _proc(rng, n)
     seq = reg - cv2
     term = arr_c - chain(t0)
 
@@ -119,7 +127,8 @@ def build_likelihoods(cfg: P.Config, n=1_000_000, seed=12345) -> Likelihoods:
         seq=LT.EmpiricalLogPDF(seq, 0.5 if on else 0.05),
         term=LT.EmpiricalLogPDF(term, 0.5 if on else 0.002),
         hop_max=float(hop.max()) + 1.0, origin_max=float(np.abs(origin).max()) + 1.0,
-        seq_max=float(seq.max()) + 5.0, term_max=float(np.abs(term).max()) + 1.0)
+        seq_max=float(seq.max()) + 5.0, term_max=float(np.abs(term).max()) + 1.0,
+        seq_samples=seq[:20_000])
 
 
 # =========================================================================== observation
@@ -380,25 +389,7 @@ def attack_run(run, lik: Likelihoods, pools, rng_seed=0, diagnostics=True):
     out["feasible_candidates_mean"] = float(feas.mean()) if feas.size else 0.0
 
     # ---- sequencing attack: CV-2 arrivals vs gossip origination bursts
-    rows = np.nonzero(s1["cv2"])[0]
-    cols = gossip_origins(ev, cfg.attacker_reads_record_type, pools.gossip_wire)
-    d = ev["t_send"][cols][None, :] - ev["t_arr"][rows][:, None]
-    Ws = np.where((d > 0) & (d < lik.seq_max), lik.seq(np.clip(d, 0, lik.seq_max)), -np.inf)
-    cs, gs, ps = assign(Ws)
-    row_sub = np.full(S, -1, np.int64)
-    rs = leg[rows] == CV2
-    row_sub[sub_of[rows[rs]]] = np.nonzero(rs)[0]
-    col_sub = np.where(np.isin(leg[cols], [REG_F_ORIGIN, REG_I_ORIGIN]), sub_of[cols], -1)
-    rr = row_sub[sc]
-    hs = rr >= 0
-    ch = np.where(hs, cs[np.maximum(rr, 0)], -1)
-    corr_s = hs & (ch >= 0) & (np.where(ch >= 0, col_sub[np.maximum(ch, 0)], -2) == sc)
-    out["seq"] = _pack(corr_s, np.where(hs, gs[np.maximum(rr, 0)], np.nan), np.where(hs, ps[np.maximum(rr, 0)], np.nan))
-    Wsr = np.where(np.isfinite(Ws), rng.random(Ws.shape), -np.inf)
-    csr, _, _ = assign(Wsr)
-    chr_ = np.where(hs, csr[np.maximum(rr, 0)], -1)
-    out["seq_chance_correct"] = int((hs & (chr_ >= 0) &
-                                     (np.where(chr_ >= 0, col_sub[np.maximum(chr_, 0)], -2) == sc)).sum())
+    out.update(sequencing(run, lik, pools, sc, rng))
 
     # ---- origin-anchored trace (device IP visible at the first hop) - separate section
     def trace_ok(first, last):
@@ -424,6 +415,50 @@ def attack_run(run, lik: Likelihoods, pools, rng_seed=0, diagnostics=True):
     out["n_scored"] = int(sc.shape[0])
     if diagnostics:
         out["diag"] = _diagnostics(run, ev, sig, s1, cred, cont, sc, lik)
+    return out
+
+
+def sequencing(run, lik: Likelihoods, pools, sc, rng):
+    """CV-2 arrivals at C vs registry-gossip origination bursts, paired by linear_sum_assignment."""
+    ev, cfg = run.events, run.cfg
+    S = run.subs["t0"].shape[0]
+    leg, sub_of = ev["leg"], ev["sub"]
+    sig = signature_mask(ev, cfg.attacker_reads_record_type, pools.tls13_overhead)
+    src, dst = ev["src"].astype(int), ev["dst"].astype(int)
+    rows = np.nonzero(sig & (src >= VAL0) & (src < VAL0 + P.N_VALIDATORS) & (dst < P.N_NODES))[0]
+    cols = gossip_origins(ev, cfg.attacker_reads_record_type, pools.gossip_wire)
+    d = ev["t_send"][cols][None, :] - ev["t_arr"][rows][:, None]
+    Ws = np.where((d > 0) & (d < lik.seq_max), lik.seq(np.clip(d, 0, lik.seq_max)), -np.inf)
+    cs, gs, ps = assign(Ws)
+    row_sub = np.full(S, -1, np.int64)
+    rs = leg[rows] == CV2
+    row_sub[sub_of[rows[rs]]] = np.nonzero(rs)[0]
+    col_sub = np.where(np.isin(leg[cols], [REG_F_ORIGIN, REG_I_ORIGIN]), sub_of[cols], -1)
+    rr = row_sub[sc]
+    hs = rr >= 0
+    ch = np.where(hs, cs[np.maximum(rr, 0)], -1)
+    corr = hs & (ch >= 0) & (np.where(ch >= 0, col_sub[np.maximum(ch, 0)], -2) == sc)
+    Wsr = np.where(np.isfinite(Ws), rng.random(Ws.shape), -np.inf)
+    csr, _, _ = assign(Wsr)
+    chr_ = np.where(hs, csr[np.maximum(rr, 0)], -1)
+    chance = int((hs & (chr_ >= 0) & (np.where(chr_ >= 0, col_sub[np.maximum(chr_, 0)], -2) == sc)).sum())
+    return {"seq": _pack(corr, np.where(hs, gs[np.maximum(rr, 0)], np.nan), np.where(hs, ps[np.maximum(rr, 0)], np.nan)),
+            "seq_chance_correct": chance}
+
+
+def sequencing_only_run(run, lik: Likelihoods, pools, rng_seed=0):
+    """Hardening checks: the sequencing attack alone, plus whether credential terminals are
+    still detectable from the CV-1 timing rule the main attack relies on."""
+    ev = run.events
+    sc = _scored(run)
+    out = sequencing(run, lik, pools, sc, np.random.default_rng(rng_seed))
+    sig = signature_mask(ev, run.cfg.attacker_reads_record_type, pools.tls13_overhead)
+    grid = on_grid(ev, estimate_grids(ev, sig))
+    n2n = sig & (ev["src"] < P.N_NODES) & (ev["dst"] < P.N_NODES) & grid
+    term = cred_terminals(ev, sig, {"n2n": n2n})
+    out["cred_terminal_detect"] = float(np.isin(run.subs["ev_cred"][sc, 2], term).mean())
+    out["cred_terminal_false"] = float(np.mean(ev["leg"][term] != CRED3)) if term.size else 0.0
+    out["n_scored"] = int(sc.shape[0])
     return out
 
 

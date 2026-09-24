@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from . import params as P
-from .sweep import PROBE_SETTING, SENS_SETTING, jobs, load
+from .sweep import HARDENING, PROBE_SETTING, SENS_SETTING, hardening_jobs, jobs, load
 from .wire_pools import Pools
 from .crypto_legs import size_verification_report
 
@@ -134,6 +134,15 @@ def summarize():
             bound_oracle_terminals=_attack_block(runs, None, None, L, rng, sub="oracle_terminal"),
             stages=_diag_block(runs),
             origin_anchored=_origin_block(runs))
+    out["hardening"] = {}
+    for name, cfg, nruns, L in hardening_jobs(P.RUNS_PER_SETTING, 50):
+        runs = load(name)
+        if not runs:
+            continue
+        out["hardening"][name] = dict(
+            variant=name.split("_")[1], devices=cfg.devices, interval_min=cfg.interval_min, L_workbook=L,
+            runs=len(runs), sequencing=_attack_block(runs, "seq", "seq_chance_correct", L, rng),
+            cred_terminal_detected=float(np.mean([r["cred_terminal_detect"] for r in runs])))
     pools = Pools()
     out["wire_pools"] = pools.summary()
     out["size_verification"] = [dict(leg=l, workbook=w, measured=m, note=n) for l, w, m, n in size_verification_report()]
@@ -216,6 +225,46 @@ def _figures(out):
     ax[1].legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(OUT / "sweep.png", dpi=150)
+    plt.close(fig)
+    _hardening_figure(out, main, names, Ls, xs, plt)
+
+
+def _hardening_figure(out, main, names, Ls, xs, plt):
+    H = out.get("hardening", {})
+    if not H:
+        return
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4.6), facecolor="#fcfcfb")
+    for a in ax:
+        a.set_facecolor("#fcfcfb")
+        a.grid(True, axis="y", lw=0.6)
+    series = [("as built (no extra hold)", None, "#eb6834"), ("hold at CV-1/2", "cv", "#2a78d6"),
+              ("hold at F/I before posting", "reg", "#1baf7a"), ("both holds", "both", "#eda100")]
+    for label, v, col in series:
+        blocks = [main[n]["sequencing"] if v is None else H.get(f"harden_{v}_{n[5:]}", {}).get("sequencing")
+                  for n in names]
+        if any(b is None for b in blocks):
+            continue
+        acc = np.array([b["accuracy"] for b in blocks])
+        lo = np.array([b["ci95"][0] for b in blocks])
+        hi = np.array([b["ci95"][1] for b in blocks])
+        ch = np.array([b["empirical_chance"] for b in blocks])
+        ax[0].errorbar(Ls, acc, yerr=[acc - lo, hi - acc], fmt="o-", color=col, label=label, ms=5, lw=2,
+                       capsize=2, mec="#fcfcfb", mew=1)
+        ax[1].plot(Ls, acc / ch, "o-", color=col, label=label, ms=5, lw=2, mec="#fcfcfb", mew=1)
+    ax[0].plot(xs, 1 / xs, color="black", lw=1, ls=":", label="1/L")
+    ax[0].set_yscale("log")
+    ax[0].set_xlabel("L (workbook Little's-law anonymity set)")
+    ax[0].set_ylabel("Sequencing-attack pairing accuracy")
+    ax[0].set_title("Sequencing attack with added lottery holds (95% CI)")
+    ax[0].legend(fontsize=8)
+    ax[1].axhline(1.0, color="black", lw=1, ls=":", label="random assignment (= 1x)")
+    ax[1].set_ylim(bottom=0)
+    ax[1].set_xlabel("L")
+    ax[1].set_ylabel("Accuracy / random-assignment baseline")
+    ax[1].set_title("Residual signal above true chance")
+    ax[1].legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(OUT / "hardening.png", dpi=150)
     plt.close(fig)
 
 

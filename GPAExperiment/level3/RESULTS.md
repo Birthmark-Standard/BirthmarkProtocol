@@ -99,21 +99,23 @@ So the unmodelled anonymizing layer is the only thing protecting the first-hop l
 
 ## Findings that don't depend on the sweep
 
-1. **The Size Verification tab leaves out one encryption layer.** Every relay leg carries the nested payload-key ECIES layer (C-/F-/I-device_pk), which adds 49 B. Measured with real crypto:
-   - Cred-1/2: 235 B (the tab says 186)
-   - Cred-3: 219 B (the tab says 170)
-   - ContA/B-1/2: 162 B (the tab says 113)
-   - ContA/B-3: 146 B (the tab says 97)
-   
-   GK, CV-1, CV-2 and Reg match the tab exactly. The largest leg is still GK at 289 B, so padding into 420–460 B still works. Only the tab's arithmetic needs correcting.
-2. **RFC 7685 is cited backwards** (Simulation Parameters!D3). The padding extension exists to push ClientHellos *out* of the 256–511 B range; some middleboxes hang on those sizes. Real OpenSSL ClientHellos:
-   - with padding: 517 B on the wire
-   - without padding: 293–326 B
-   - resumed sessions: 556–608 B
-   
-   **None of the 360 captured ClientHellos landed in Birthmark's 442–482 B window.** Only 0.7% of DNSSEC responses did. The traffic that actually overlaps Birthmark on the wire is TLS 1.3 application-data records: 2.1% of them fall in the window.
+Both of the workbook corrections below came out of this experiment and are now recorded in the workbook itself (`../Birthmark_Traffic_Analysis_Catalog.xlsx`, updated copy in this repo). The numbers here are the workbook's corrected values, which the real-crypto construction reproduces byte for byte (`tests/test_level3.py::test_measured_sizes_match_corrected_workbook`).
 
-   In this experiment, that is enough cover, because the lottery does the work, not the blend-in. But the rationale for the padding range needs rewriting.
+1. **Relay-leg raw sizes (Size Verification, column D):**
+   - Cred-1/2: 235 B
+   - Cred-3: 219 B
+   - ContA/B-1/2: 162 B
+   - ContA/B-3: 146 B
+   - GK fan-out: 289 B (the largest leg)
+   - CV-1: 178 B; CV-2: 165 B; Reg-1/2: 96 B
+
+   Every padded leg sits under the 420 B padding floor, so the 420–460 B target is unchanged. *(An earlier workbook draft left out the nested payload-key ECIES layer, +49 B, on every relay leg. The tab now itemises it.)*
+2. **What the 442–482 B wire window actually blends with (Simulation Parameters!D3):**
+   - TLS ClientHellos: none. 0 of 360 real OpenSSL ClientHellos landed in the window. The RFC 7685 padding extension moves ClientHellos *out of* 256–511 B: with padding they are 517 B on the wire; without it, 293–326 B; resumed sessions, 556–608 B.
+   - TLS 1.3 application-data records: 2.1% fall in the window. This is the only real cover.
+   - DNSSEC/EDNS0 responses: 0.7% of the 600 built for this experiment fell in the window. The corrected workbook says DNS "was not tested against this correction". It was tested, with this result; see the note to the workbook owner below.
+
+   The sweep result doesn't depend on blend-in: the protection comes from the lottery and clock design. *(An earlier workbook draft cited RFC 7685 as putting ClientHellos inside the window. The citation was backwards.)*
 3. **The observer can find C and the moment each credential chain ends.** C contacts the validator immediately, with no lottery. This lets the observer detect credential terminals with over 99% reliability. It isn't a link by itself, but it is what makes the sequencing attack possible. A lottery hold before CV-1, or a hold at F/I before posting to the registry, would target that attack directly.
 4. **The lottery's mean hold is 111 s, not 120 s.** Truncation at 30 ticks shortens it. The L column was used as printed.
 
