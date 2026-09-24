@@ -62,13 +62,6 @@ servers' keys, `blindshare_key` for BlindShare_key, and `g1_sk`/`g1_sign_sk`,
 `g2_sk`/`g2_sign_sk`, `g3_sk`/`g3_sign_sk` for the three gatekeepers' terminus and
 signing keys respectively.
 
-"Gatekeeper" in these models always means one of the three verify-and-post nodes, never
-C. C was previously called the "gatekeeper server" in an earlier revision of both the
-paper and this folder; `BM_CredentialProcessor_Compromise.pv` is the current name for
-what was once `BM_Gatekeeper_Compromise.pv`, testing the same property (D) under the
-current terminology. If a file by the old name is still present in this folder, it's
-stale and should be removed rather than treated as a second copy of Property D.
-
 Property and file names are otherwise independent of each other by design: a file is
 named for what it tests, not for a letter, so that the mapping in the table above is the
 only place that pairing needs to be looked up.
