@@ -165,6 +165,24 @@ def _mesh(rng):
             for v in range(P.N_NODES)}
 
 
+def _catalog_roles(r, S):
+    """Leg Catalog K3 role rules. C, F, I distinct; first hops A, D, G distinct and never C, F or I
+    (device-table routing); each Random hop excludes only its own first hop and destination; the
+    three gatekeepers are any three nodes."""
+    N, idx = P.N_NODES, np.arange(S)
+    perm = np.argsort(r.random((S, N)), axis=1)
+    C, F, I, A, D, G = perm[:, :6].T
+
+    def pick(excl):
+        x = r.random((S, N))
+        for e in excl:
+            x[idx, e] = 2.0
+        return x.argmin(axis=1)
+    B, E, Hh = pick((A, C)), pick((D, F)), pick((G, I))
+    gk = np.argsort(r.random((S, N)), axis=1)[:, :3]
+    return C, F, I, A, B, D, E, G, Hh, gk
+
+
 def gen_birthmark(w: World):
     cfg, r, H = w.cfg, w.rng, w.cfg.horizon_s
     rate = 1.0 / (cfg.interval_min * 60.0)
@@ -176,13 +194,16 @@ def gen_birthmark(w: World):
     S = t0.shape[0]
     sub = np.arange(S)
     val = VAL0 + dev % P.N_VALIDATORS
-    # role slots: nine distinct nodes so no intermediary or first hop is shared across
-    # channels (G6), and A != C, B not in {A, C} etc. as the Leg Catalog requires.
-    perm = np.argsort(r.random((S, P.N_NODES)), axis=1)
-    C, F, I, A, B, D, E, G, Hh = perm[:, :9].T
-    gkr = r.random((S, P.N_NODES))
-    gkr[sub, C] = 2.0
-    gk = np.argsort(gkr, axis=1)[:, :3]
+    if cfg.role_rules == "catalog":
+        C, F, I, A, B, D, E, G, Hh, gk = _catalog_roles(r, S)
+    else:
+        # role slots: nine distinct nodes so no intermediary or first hop is shared across
+        # channels (G6), and A != C, B not in {A, C} etc. as the Leg Catalog requires.
+        perm = np.argsort(r.random((S, P.N_NODES)), axis=1)
+        C, F, I, A, B, D, E, G, Hh = perm[:, :9].T
+        gkr = r.random((S, P.N_NODES))
+        gkr[sub, C] = 2.0
+        gk = np.argsort(gkr, axis=1)[:, :3]
 
     arr_c, cred_ids = _chain(w, t0, dev, A, B, C, (CRED1, CRED2, CRED3), ("Cred-1", "Cred-2", "Cred-3"), sub)
     arr_f, ca_ids = _chain(w, t0, dev, D, E, F, (CA1, CA2, CA3), ("ContA-1", "ContA-2", "ContA-3"), sub)
@@ -206,18 +227,29 @@ def gen_birthmark(w: World):
 
     # gatekeeper fan-out: staggered, each leg its own lottery draw at C
     posts, gk_ids = np.empty((S, 3)), []
+    gk_valid = gk != C[:, None]          # only possible under role_rules="catalog"
     for j in range(3):
         rel = LT.release_time(r, cv2_a, w.phase[C], cfg.relay_clock, cfg.lottery_enabled) + w.proc(S)
         arr = rel + w.lat_int[C, gk[:, j]] + w.jit(S)
-        gk_ids.append(w.ev.add(rel, arr, C, gk[:, j], w.relay_size("GK", S), P.RT_APPDATA, K_BIRTHMARK,
-                               GK1 + j, sub))
+        if gk_valid[:, j].all():
+            gk_ids.append(w.ev.add(rel, arr, C, gk[:, j], w.relay_size("GK", S), P.RT_APPDATA, K_BIRTHMARK,
+                                   GK1 + j, sub))
+        else:   # C posts to its own board directly: no leg on the wire
+            m = gk_valid[:, j]
+            ids = np.full(S, -1, dtype=np.int64)
+            ids[m] = w.ev.add(rel[m], arr[m], C[m], gk[m, j], w.relay_size("GK", int(m.sum())), P.RT_APPDATA,
+                              K_BIRTHMARK, GK1 + j, sub[m])
+            gk_ids.append(ids)
+            arr = np.where(m, arr, cv2_a)
         posts[:, j] = arr + r.uniform(*P.GATEKEEPER_PROC_MS, S) / 1000   # Post-j: internal, unobserved
-    quorum = np.sort(posts, axis=1)[:, 1]
+    # quorum: 2 of the 3 boards; a record C signed as both C and gatekeeper does not count
+    quorum = np.sort(np.where(gk_valid, posts, np.inf), axis=1)[:, 1]
 
     # F and I poll the boards on their own 10 s tick and post once 2-of-3 AND content are in
     # [DECISION: polling default, flagged as an assumption]
     reg_f = LT.next_tick(np.maximum(quorum, arr_f), w.phase[F])
     reg_i = LT.next_tick(np.maximum(quorum, arr_i), w.phase[I])
+    det_f, det_i = reg_f.copy(), reg_i.copy()     # quorum-detection poll tick (internal to F / I)
     if cfg.reg_hold:   # adopted: F and I each hold the posting in their own, independent lottery clock
         if cfg.reg_hold_phase == "fresh":
             ph_f, ph_i = r.uniform(0, P.TICK_S, S), r.uniform(0, P.TICK_S, S)
@@ -234,6 +266,7 @@ def gen_birthmark(w: World):
     oids = _gossip(w, origin, t_org, np.concatenate([sub, sub]), legs, mesh)
 
     subs = dict(t0=t0, dev=dev, val=val, C=C, F=F, I=I, A=A, B=B, D=D, E=E, G=G, H=Hh, gk=gk,
+                gk_valid=gk_valid, posts=posts, det_f=det_f, det_i=det_i,
                 quorum=quorum, reg_f=reg_f, reg_i=reg_i, arr_c=arr_c, arr_f=arr_f, arr_i=arr_i,
                 ev_cred=np.stack(cred_ids, 1), ev_ca=np.stack(ca_ids, 1), ev_cb=np.stack(cb_ids, 1),
                 ev_cv1=cv1_id, ev_cv2=cv2_id, ev_gk=np.stack(gk_ids, 1),

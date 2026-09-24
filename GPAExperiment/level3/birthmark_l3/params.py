@@ -107,6 +107,12 @@ class Config:
     reg_hold_phase: str = "node"       # [WB Level 3!B13] "node": F's and I's own node clocks,
                                        #   independent of each other (spec). "fresh": a new random phase
                                        #   per posting (check run only, to settle the wording).
+    role_rules: str = "distinct"       # "distinct": nine distinct nodes per submission and C never a
+                                       #   gatekeeper (the published GPA sweep). "catalog": the Leg
+                                       #   Catalog rules (K3) as clarified by the protocol owner: A/D/G
+                                       #   exclude C/F/I; B excludes A and C, E excludes D and F, H excludes
+                                       #   G and I; gatekeepers are any three nodes, and when C is one of
+                                       #   them its self-signed board record does not count toward quorum.
     cv_hold: bool = False              # [WB Level 3!B6] REJECTED: a hold at CV-1/2 strengthens the
                                        #   sequencing signal. True only to reproduce that comparison.
     padding_enabled: bool = True       # False = positive control (raw sizes on the wire)
