@@ -101,10 +101,14 @@ class Config:
     bg_clients_per_node: int = BG_CLIENTS_PER_NODE
     attacker_reads_record_type: bool = True   # [DECISION] yes in sweep; both in blend-in report
     lottery_enabled: bool = True       # False = positive control (immediate forwarding)
-    cv_hold: bool = False              # hardening check: lottery hold at C before CV-1 and at the
-                                       #   validator before CV-2 (same lottery, same parameters)
-    reg_hold: bool = False             # hardening check: lottery hold at F/I between seeing the
-                                       #   2-of-3 quorum and posting to the registry
+    reg_hold: bool = True              # [WB Level 3!B6, B13; Leg Catalog K26/K27] ADOPTED: F and I
+                                       #   each hold their registry posting in the lottery after seeing
+                                       #   the 2-of-3 quorum. False = the "before" comparison.
+    reg_hold_phase: str = "node"       # [WB Level 3!B13] "node": F's and I's own node clocks,
+                                       #   independent of each other (spec). "fresh": a new random phase
+                                       #   per posting (check run only, to settle the wording).
+    cv_hold: bool = False              # [WB Level 3!B6] REJECTED: a hold at CV-1/2 strengthens the
+                                       #   sequencing signal. True only to reproduce that comparison.
     padding_enabled: bool = True       # False = positive control (raw sizes on the wire)
     background_enabled: bool = True
     nonblending_enabled: bool = True

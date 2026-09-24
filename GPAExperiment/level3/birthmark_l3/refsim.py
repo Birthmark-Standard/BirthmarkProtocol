@@ -47,6 +47,7 @@ class RefSim:
         self.lat_dev = self.rng.uniform(*P.LAT_EXT_MS, (cfg.devices, N)) / 1000
         self.dev_phase = self.rng.uniform(0, P.TICK_S, cfg.devices)
         self.held = defaultdict(list)            # node -> [packet dict]
+        self.held_posts = defaultdict(list)      # node -> [registry postings in the adopted F/I hold]
         self.boards = [defaultdict(set) for _ in range(N)]   # gatekeeper node's board: PacketHash -> posts
         self.registry_seen = defaultdict(set)
         self.pending_content = defaultdict(list)  # node -> [(packet_hash, content_hash, sub, leg)]
@@ -143,6 +144,17 @@ class RefSim:
             else:
                 keep.append(item)
         self.held[node] = keep
+        keep = []
+        for item in self.held_posts[node]:
+            if self.now <= item["since"] + 1e-9:          # first roll is the tick AFTER quorum was seen
+                keep.append(item)
+                continue
+            item["ticks"] += 1
+            if item["ticks"] >= P.MAX_TICKS or self.rng.random() < P.RELEASE_P:
+                self._post_registry(node, item["c"])
+            else:
+                keep.append(item)
+        self.held_posts[node] = keep
         self._at(self.now + P.TICK_S, self._node_tick, node)
 
     def _release(self, node, item):
@@ -236,7 +248,7 @@ class RefSim:
         for c in self.pending_content[node]:
             votes = sum(1 for g in range(P.N_NODES) if c["ph"] in self.boards[g])
             if votes >= 2:
-                self._post_registry(node, c)
+                self._hold_post(node, c)
             else:
                 keep.append(c)
         self.pending_content[node] = keep
@@ -244,6 +256,27 @@ class RefSim:
             self._at(self.now + P.TICK_S, self._poll, node)
         else:
             self.cstate[("poll", node)] = False
+
+    def _hold_post(self, node, c):
+        """Adopted F/I hold: the posting rolls the lottery on this node's own clock (or, for the
+        "fresh" check, on a clock with a new random phase), starting at the next tick."""
+        cfg = self.cfg
+        if not (cfg.reg_hold and cfg.lottery_enabled):
+            self._post_registry(node, c)
+            return
+        if cfg.relay_clock == "node" and cfg.reg_hold_phase == "node":
+            self.held_posts[node].append(dict(c=c, ticks=0, since=self.now))
+            return
+        first = self.now + P.TICK_S if cfg.relay_clock == "packet" else \
+            float(LT.next_tick(self.now, self.rng.uniform(0, P.TICK_S)))
+        self._at(first, self._post_timer, node, dict(c=c, ticks=0))
+
+    def _post_timer(self, node, item):
+        item["ticks"] += 1
+        if item["ticks"] >= P.MAX_TICKS or self.rng.random() < P.RELEASE_P:
+            self._post_registry(node, item["c"])
+        else:
+            self._at(self.now + P.TICK_S, self._post_timer, node, item)
 
     def _post_registry(self, node, c):
         entry = X.reg_posting(c["ch"], self.keys[node])

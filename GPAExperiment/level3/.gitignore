@@ -3,3 +3,4 @@ results/sweep.log
 __pycache__/
 .pytest_cache/
 results/harden.log
+results/raw_archive/
