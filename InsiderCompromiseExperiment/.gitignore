@@ -5,3 +5,4 @@ __pycache__/
 results/harden.log
 results/raw_archive/
 results/*.log
+results/raw_first_run/

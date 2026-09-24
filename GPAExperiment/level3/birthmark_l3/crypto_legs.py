@@ -261,3 +261,28 @@ def size_verification_report() -> list[tuple[str, int, int, str]]:
 # Raw sizes the fast simulator uses (as measured, not as tabulated), keyed by leg family.
 def raw_size_table() -> dict[str, int]:
     return measure_raw_sizes()
+
+
+# --------------------------------------------------------------------------- ring-signed GK leg
+RING_POOL = 17   # Insider Experiment Design!B6: the 17 nodes eligible to act as C
+
+
+def gk_fanout_ring(packet_hash, wrapped, v_sig, blindshare_key, ring_keys, c_index, gks, targets):
+    """GK fan-out where C's signature is an AOS ring signature over the C-candidate pool."""
+    from . import ring_sig as RS
+    ring = [k.pk for k in ring_keys]
+    c_sig = RS.sign(packet_hash, ring, c_index, ring_keys[c_index])
+    body = packet_hash + wrapped + v_sig + blindshare_key + c_sig
+    return [transit_wrap(g.transit.pk, body, t) for g, t in zip(gks, targets)], c_sig
+
+
+def ring_gk_raw_size() -> int:
+    """Measured, not tabulated: build one ring-signed GK leg with real keys, unpadded."""
+    from . import ring_sig as RS
+    V, C, G = ValidatorKeys.new(), ServerKeys.new(), ServerKeys.new()
+    sub = new_submission(os.urandom(32), V)
+    bsk = AESGCM.generate_key(bit_length=256)
+    wrapped = blindshare_encrypt(bsk, sub.packet_hash)
+    keys = [RS.RingKey() for _ in range(RING_POOL)]
+    pkts, _ = gk_fanout_ring(sub.packet_hash, wrapped, V.sign.sign(wrapped), bsk, keys, 5, [G], [None])
+    return len(pkts[0])

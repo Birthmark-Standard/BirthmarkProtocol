@@ -109,8 +109,6 @@ def build_likelihoods(cfg: P.Config, n=1_000_000, seed=12345) -> Likelihoods:
     posts = np.stack([LT.release_time(rng, cv2, ph_c, cfg.relay_clock, on) + _proc(rng, n)
                       + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n) + rng.uniform(*P.GATEKEEPER_PROC_MS, n) / 1000
                       for _ in range(3)], 1)
-    if cfg.role_rules == "catalog":   # C is one of the gatekeepers 3 times in 20: its record doesn't count
-        posts[:, 0] = np.where(rng.random(n) < 3 / P.N_NODES, np.inf, posts[:, 0])
     quorum = np.sort(posts, 1)[:, 1]
     ph_f = rng.uniform(0, P.TICK_S, n)
     reg = LT.next_tick(np.maximum(quorum, chain(t0)), ph_f)
