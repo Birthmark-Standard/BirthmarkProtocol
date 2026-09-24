@@ -189,10 +189,18 @@ def gen_birthmark(w: World):
     arr_i, cb_ids = _chain(w, t0, dev, G, Hh, I, (CB1, CB2, CB3), ("ContA-1", "ContA-2", "ContA-3"), sub)
 
     # C <-> validator round trip (no lottery: the workbook applies it to relay hops + GK only)
-    cv1_s = arr_c + w.proc(S)
+    # (hardening check only: optional lottery hold at C before CV-1 and at the validator
+    # before CV-2. Extra random draws happen only when enabled, so the sweep's seeds are unchanged.)
+    val_phase = r.uniform(0, P.TICK_S, P.N_VALIDATORS) if cfg.cv_hold else None
+    cv1_s = arr_c
+    if cfg.cv_hold:
+        cv1_s = LT.release_time(r, arr_c, w.phase[C], cfg.relay_clock, cfg.lottery_enabled)
+    cv1_s = cv1_s + w.proc(S)
     cv1_a = cv1_s + w.lat_int[C, val] + w.jit(S)
     cv1_id = w.ev.add(cv1_s, cv1_a, C, val, w.relay_size("CV-1", S), P.RT_APPDATA, K_BIRTHMARK, CV1, sub)
     cv2_s = cv1_a + r.uniform(*P.VALIDATOR_PROC_MS, S) / 1000
+    if cfg.cv_hold:
+        cv2_s = LT.release_time(r, cv2_s, val_phase[val - VAL0], cfg.relay_clock, cfg.lottery_enabled) + w.proc(S)
     cv2_a = cv2_s + w.lat_int[val, C] + w.jit(S)
     cv2_id = w.ev.add(cv2_s, cv2_a, val, C, w.relay_size("CV-2", S), P.RT_APPDATA, K_BIRTHMARK, CV2, sub)
 
@@ -208,8 +216,13 @@ def gen_birthmark(w: World):
 
     # F and I poll the boards on their own 10 s tick and post once 2-of-3 AND content are in
     # [DECISION: polling default, flagged as an assumption]
-    reg_f = LT.next_tick(np.maximum(quorum, arr_f), w.phase[F]) + w.proc(S)
-    reg_i = LT.next_tick(np.maximum(quorum, arr_i), w.phase[I]) + w.proc(S)
+    reg_f = LT.next_tick(np.maximum(quorum, arr_f), w.phase[F])
+    reg_i = LT.next_tick(np.maximum(quorum, arr_i), w.phase[I])
+    if cfg.reg_hold:   # hardening check only: hold the posting in F's / I's own lottery
+        reg_f = LT.release_time(r, reg_f, w.phase[F], cfg.relay_clock, cfg.lottery_enabled)
+        reg_i = LT.release_time(r, reg_i, w.phase[I], cfg.relay_clock, cfg.lottery_enabled)
+    reg_f = reg_f + w.proc(S)
+    reg_i = reg_i + w.proc(S)
     mesh = _mesh(r)
     origin = np.concatenate([F, I])
     t_org = np.concatenate([reg_f, reg_i])

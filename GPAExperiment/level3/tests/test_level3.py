@@ -45,6 +45,12 @@ def test_every_leg_fits_under_padding_floor():
         assert measured < P.PAD_MIN, leg
 
 
+def test_measured_sizes_match_corrected_workbook():
+    """Size Verification (corrected) and the real-crypto construction agree byte for byte."""
+    for leg, wb, measured, _ in X.size_verification_report():
+        assert measured == wb, (leg, wb, measured)
+
+
 def test_padding_makes_size_independent_of_leg(pools):
     run = F.simulate(P.Config(devices=40, interval_min=10, bg_clients_per_node=0, nonblending_enabled=False), 3, pools)
     e = run.events
@@ -89,6 +95,16 @@ def test_fastsim_matches_reference(pools, clock):
     x = _timings(re, F.CRED1, F.REG_F_ORIGIN)
     y = _timings(fe, F.CRED1, F.REG_F_ORIGIN)
     assert ks_2samp(x, y).pvalue > 0.001
+
+
+@pytest.mark.parametrize("hold", [dict(), dict(cv_hold=True), dict(reg_hold=True)])
+def test_attacker_sequencing_model_matches_simulator(pools, hold):
+    """The attacker's Monte-Carlo sequencing model describes what the simulator produces, including
+    under the hardening holds - otherwise a weaker result could just mean a mis-specified attacker."""
+    cfg = P.Config(devices=160, interval_min=10, bg_clients_per_node=0, nonblending_enabled=False, **hold)
+    sim = _timings(F.simulate(cfg, 9, pools).events, F.CV2, F.REG_F_ORIGIN)
+    lik = A.build_likelihoods(cfg, n=200_000)
+    assert ks_2samp(sim, lik.seq_samples).pvalue > 0.001
 
 
 # ------------------------------------------------------------------ the attack is not broken

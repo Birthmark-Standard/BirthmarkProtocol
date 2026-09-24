@@ -97,24 +97,68 @@ So the unmodelled anonymizing layer is the only thing protecting the first-hop l
 - **Sanity check on non-blending traffic.** No keepalive ever entered a reconstructed chain. Across all 3,000 sweep runs, 117 bulk-transfer records did (out of about 11.7 million chain slots). Each was the final, partial record of a transfer, which can land in the 442–482 B window by chance.
 - **Observer reads the record type vs ignores it.** This makes no measurable difference: 0.05% main accuracy either way. Ignoring it adds about 1,000 DNS responses per run to roughly 37,000 in-window background records.
 
+## Hardening the sequencing attack
+
+The sequencing attack is the one attack with a measurable residual signal, so it was re-run across the full sweep with a lottery hold added in each of two places. Both holds use the same mechanism and parameters as the relay hops (10 s ticks, p = 0.0833, forced at tick 30, on the holding node's own clock):
+- **CV hold:** C holds CV-1 before sending it, and the validator holds CV-2 before replying.
+- **F/I hold:** F and I each hold their registry posting after they see the 2-of-3 quorum.
+
+200 runs per setting (50 for both holds together), on the same seeds as the main sweep. The attacker's likelihood is rebuilt for each variant, and a test checks it against the simulator's actual delays (`test_attacker_sequencing_model_matches_simulator`). A weaker result therefore can't be explained by a mis-specified attacker.
+
+![hardening](results/hardening.png)
+
+| Devices | Interval (min) | L | As built | Hold at CV-1/2 | Hold at F/I before posting | Both holds |
+|---|---|---|---|---|---|---|
+| 40 | 10 | 8 | 7.3% (4.5×) | 9.7% (5.4×) | 4.3% (3.6×) | 5.1% (3.9×) |
+| 40 | 15 | 5.3 | 10.8% (4.7×) | 14.5% (5.2×) | 6.3% (3.4×) | 7.4% (4.0×) |
+| 40 | 20 | 4 | 13.9% (4.0×) | 18.4% (5.3×) | 9.1% (3.6×) | 10.6% (4.0×) |
+| 80 | 10 | 16 | 3.7% (4.7×) | 4.6% (5.6×) | 2.2% (3.8×) | 2.6% (3.8×) |
+| 80 | 15 | 10.7 | 5.5% (4.8×) | 7.3% (5.7×) | 3.1% (3.5×) | 4.1% (4.2×) |
+| 80 | 20 | 8 | 7.2% (4.4×) | 9.5% (5.6×) | 4.2% (3.1×) | 5.5% (4.2×) |
+| 120 | 10 | 24 | 2.5% (5.4×) | 3.1% (6.8×) | 1.5% (4.7×) | 1.6% (3.7×) |
+| 120 | 15 | 16 | 3.7% (4.8×) | 4.8% (5.6×) | 2.2% (3.9×) | 2.8% (4.7×) |
+| 120 | 20 | 12 | 4.8% (4.3×) | 6.4% (5.6×) | 2.9% (3.6×) | 3.3% (3.9×) |
+| 160 | 10 | 32 | 1.8% (5.8×) | 2.3% (6.5×) | 1.1% (4.3×) | 1.3% (4.8×) |
+| 160 | 15 | 21.3 | 2.7% (4.9×) | 3.5% (6.0×) | 1.6% (3.8×) | 1.7% (3.7×) |
+| 160 | 20 | 16 | 3.6% (4.9×) | 4.7% (5.7×) | 2.2% (3.9×) | 2.4% (4.2×) |
+| 200 | 10 | 40 | 1.4% (5.5×) | 1.7% (6.2×) | 0.8% (4.0×) | 1.0% (4.4×) |
+| 200 | 15 | 26.7 | 2.1% (5.2×) | 2.8% (5.6×) | 1.2% (4.2×) | 1.5% (4.8×) |
+| 200 | 20 | 20 | 2.9% (5.5×) | 3.9% (6.4×) | 1.7% (4.0×) | 2.2% (4.2×) |
+
+Each cell shows sequencing-attack accuracy, then that accuracy divided by the random-assignment baseline for the same variant. 1× would mean no signal.
+
+**Result: neither hold closes the signal.**
+
+- **The CV-1/2 hold makes the attack stronger, not weaker.** Accuracy rises at all 15 settings, by 22–35% (for example 5.5% → 7.3% at L = 10.7). The signal above chance rises too, from about 5× to about 6×. It still stays under 1/L everywhere.
+
+  The reason is where the signal lives. The attack's anchor is the CV-2 *arrival* at C, which is identifiable with or without a hold, because validators are distinct endpoints. The signal comes from what happens after that arrival: the GK lottery, then quorum, then the F/I poll, then the post. A hold before CV-2 arrives only pushes the whole credential side later. That makes it more likely that the content has already reached F and I by the time quorum forms, so their posts track the quorum even more tightly.
+
+  The CV hold does remove a different exposure: the observer can no longer spot credential terminals from CV-1 timing (detection falls from 99% to 0.1%).
+- **The F/I hold narrows the signal but does not close it.** It cuts accuracy by 35–43% at every setting (5.5% → 3.1% at L = 10.7). The signal above chance falls from about 4–6× to 3.1–4.7×. One extra lottery draw widens the quorum-to-post delay, but it doesn't break the link between the two.
+- **Both holds together** land between the two single holds (4.1% at L = 10.7). The CV hold partly undoes the F/I hold's gain.
+
+**Practical reading:** if the goal is to shrink the sequencing signal further, the hold belongs at F/I before posting, not at CV-1/2. A CV-1/2 hold is still worth considering for a separate reason: it hides credential-chain endings. Closing the sequencing signal fully would take something stronger than one more lottery draw. That was not tested here. Candidates include coarse registry-posting epochs, or F and I posting on independent schedules rather than right after quorum.
+
 ## Findings that don't depend on the sweep
 
-1. **The Size Verification tab leaves out one encryption layer.** Every relay leg carries the nested payload-key ECIES layer (C-/F-/I-device_pk), which adds 49 B. Measured with real crypto:
-   - Cred-1/2: 235 B (the tab says 186)
-   - Cred-3: 219 B (the tab says 170)
-   - ContA/B-1/2: 162 B (the tab says 113)
-   - ContA/B-3: 146 B (the tab says 97)
-   
-   GK, CV-1, CV-2 and Reg match the tab exactly. The largest leg is still GK at 289 B, so padding into 420–460 B still works. Only the tab's arithmetic needs correcting.
-2. **RFC 7685 is cited backwards** (Simulation Parameters!D3). The padding extension exists to push ClientHellos *out* of the 256–511 B range; some middleboxes hang on those sizes. Real OpenSSL ClientHellos:
-   - with padding: 517 B on the wire
-   - without padding: 293–326 B
-   - resumed sessions: 556–608 B
-   
-   **None of the 360 captured ClientHellos landed in Birthmark's 442–482 B window.** Only 0.7% of DNSSEC responses did. The traffic that actually overlaps Birthmark on the wire is TLS 1.3 application-data records: 2.1% of them fall in the window.
+Both of the workbook corrections below came out of this experiment and are now recorded in the workbook itself (`../Birthmark_Traffic_Analysis_Catalog.xlsx`, updated copy in this repo). The numbers here are the workbook's corrected values, which the real-crypto construction reproduces byte for byte (`tests/test_level3.py::test_measured_sizes_match_corrected_workbook`).
 
-   In this experiment, that is enough cover, because the lottery does the work, not the blend-in. But the rationale for the padding range needs rewriting.
-3. **The observer can find C and the moment each credential chain ends.** C contacts the validator immediately, with no lottery. This lets the observer detect credential terminals with over 99% reliability. It isn't a link by itself, but it is what makes the sequencing attack possible. A lottery hold before CV-1, or a hold at F/I before posting to the registry, would target that attack directly.
+1. **Relay-leg raw sizes (Size Verification, column D):**
+   - Cred-1/2: 235 B
+   - Cred-3: 219 B
+   - ContA/B-1/2: 162 B
+   - ContA/B-3: 146 B
+   - GK fan-out: 289 B (the largest leg)
+   - CV-1: 178 B; CV-2: 165 B; Reg-1/2: 96 B
+
+   Every padded leg sits under the 420 B padding floor, so the 420–460 B target is unchanged. *(An earlier workbook draft left out the nested payload-key ECIES layer, +49 B, on every relay leg. The tab now itemises it.)*
+2. **What the 442–482 B wire window actually blends with (Simulation Parameters!D3):**
+   - TLS ClientHellos: none. 0 of 360 real OpenSSL ClientHellos landed in the window. The RFC 7685 padding extension moves ClientHellos *out of* 256–511 B: with padding they are 517 B on the wire; without it, 293–326 B; resumed sessions, 556–608 B.
+   - TLS 1.3 application-data records: 2.1% fall in the window. This is the only real cover.
+   - DNSSEC/EDNS0 responses: 0.7% of the 600 built for this experiment fell in the window. The corrected workbook says DNS "was not tested against this correction". It was tested, with this result; see the note to the workbook owner below.
+
+   The sweep result doesn't depend on blend-in: the protection comes from the lottery and clock design. *(An earlier workbook draft cited RFC 7685 as putting ClientHellos inside the window. The citation was backwards.)*
+3. **The observer can find C and the moment each credential chain ends.** C contacts the validator immediately, with no lottery, so the CV-1 timing rule detects credential terminals over 99% of the time. A lottery hold at CV-1/2 removes this (detection drops to 0.1%). **This is not the source of the sequencing signal, though;** see *Hardening the sequencing attack* below. An earlier version of this report said it was, and that attribution was wrong.
 4. **The lottery's mean hold is 111 s, not 120 s.** Truncation at 30 ticks shortens it. The L column was used as printed.
 
 ## Where this model is generous to the defender

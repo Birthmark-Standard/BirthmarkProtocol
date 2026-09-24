@@ -47,12 +47,28 @@ def jobs(runs_main: int, runs_probe: int, runs_sens: int):
     return J
 
 
+HARDENING = {"cv": dict(cv_hold=True), "reg": dict(reg_hold=True), "both": dict(cv_hold=True, reg_hold=True)}
+
+
+def hardening_jobs(runs: int, runs_both: int):
+    """Sequencing attack only, across the full sweep, with a lottery hold added at CV-1/2, at
+    F/I before posting, or both. Seeds are shared with the main sweep at the same setting."""
+    J = []
+    for variant, kw in HARDENING.items():
+        for dev, iv, L in P.SWEEP:
+            J.append((f"harden_{variant}_{dev}_{iv}", P.Config(devices=dev, interval_min=iv, **kw),
+                      runs_both if variant == "both" else runs, L))
+    return J
+
+
 def seed_for(job: str, i: int) -> int:
     # background/bg-sensitivity jobs share seeds with the main run at the same setting so the
     # comparison is paired; everything else gets its own stream
     key = job
     if job.startswith("bg_") or job == "record_type_ignored":
         key = f"main_{SENS_SETTING[0]}_{SENS_SETTING[1]}"
+    if job.startswith("harden_"):
+        key = "main_" + "_".join(job.split("_")[2:])
     return int.from_bytes(hashlib.sha256(f"{key}:{i}".encode()).digest()[:4], "big")
 
 
@@ -65,12 +81,15 @@ def _worker(job, cfg, i):
     from .wire_pools import Pools
     if "pools" not in _W:
         _W["pools"] = Pools()
-    key = (cfg.relay_clock, cfg.device_clock, cfg.lottery_enabled)
+    key = (cfg.relay_clock, cfg.device_clock, cfg.lottery_enabled, cfg.cv_hold, cfg.reg_hold)
     if key not in _W:
         _W[key] = A.build_likelihoods(cfg)
     t = time.time()
     run = F.simulate(cfg, seed_for(job, i), _W["pools"])
-    out = A.attack_run(run, _W[key], _W["pools"], rng_seed=i)
+    if job.startswith("harden_"):
+        out = A.sequencing_only_run(run, _W[key], _W["pools"], rng_seed=i)
+    else:
+        out = A.attack_run(run, _W[key], _W["pools"], rng_seed=i)
     out["run"] = i
     out["seconds"] = time.time() - t
     return job, out
@@ -96,11 +115,14 @@ def main():
     ap.add_argument("--runs", type=int, default=P.RUNS_PER_SETTING)
     ap.add_argument("--probe-runs", type=int, default=20)
     ap.add_argument("--sens-runs", type=int, default=50)
+    ap.add_argument("--both-runs", type=int, default=50, help="runs per setting for harden_both")
     ap.add_argument("--workers", type=int, default=os.cpu_count())
     a = ap.parse_args()
     RAW.mkdir(parents=True, exist_ok=True)
     J = jobs(a.runs, a.probe_runs, a.sens_runs)
-    if a.jobs == "main":
+    if a.jobs == "harden":
+        J = hardening_jobs(a.runs, a.both_runs)
+    elif a.jobs == "main":
         J = [j for j in J if j[0].startswith("main_")]
     elif a.jobs == "probes":
         J = [j for j in J if not j[0].startswith("main_")]

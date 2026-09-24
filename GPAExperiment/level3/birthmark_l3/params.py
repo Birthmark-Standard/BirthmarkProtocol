@@ -10,7 +10,7 @@ Tags used below:
 from dataclasses import dataclass, replace
 
 # ---------------------------------------------------------------------------
-# Lottery ("chance of transit")                     [WB Level 3!B4]
+# Lottery ("chance of transit")                     [WB Level 3!B4; clock model Level 3!B13]
 # ---------------------------------------------------------------------------
 TICK_S = 10.0              # 10-second ticks
 RELEASE_P = 0.0833         # 8.33% release probability per tick
@@ -26,7 +26,7 @@ MAX_TICKS = 30             # forced release at 30 ticks (5 min cap)
 PAD_MIN, PAD_MAX = 420, 460   # draw a TARGET total size uniformly, pad raw payload up to it
 
 # ---------------------------------------------------------------------------
-# Topology                                          [WB Level 3!B6]
+# Topology                                          [WB Level 3!B8]
 # ---------------------------------------------------------------------------
 N_NODES = 20               # fully connected pool supplying every submission-server role
 N_VALIDATORS = 4           # fixed across the sweep; devices split evenly across them
@@ -35,7 +35,7 @@ GOSSIP_MESH_D = 6          # [DEFAULT] gossipsub v1.1 default mesh degree D=6
 # Origin publishes with gossipsub v1.1 "flood publish" (to all peers) - library default.
 
 # ---------------------------------------------------------------------------
-# Sweep                                             [WB Level 3!A13:C28]
+# Sweep                                             [WB Level 3!A17:C31]
 # ---------------------------------------------------------------------------
 SWEEP = [  # (devices, mean interval minutes, L as printed in the workbook)
     (40, 10, 8.0), (40, 15, 5.3), (40, 20, 4.0),
@@ -44,7 +44,7 @@ SWEEP = [  # (devices, mean interval minutes, L as printed in the workbook)
     (160, 10, 32.0), (160, 15, 21.3), (160, 20, 16.0),
     (200, 10, 40.0), (200, 15, 26.7), (200, 20, 20.0),
 ]
-RUNS_PER_SETTING = 200     # [WB Level 3!B7]
+RUNS_PER_SETTING = 200     # [WB Level 3!B9]
 
 # ---------------------------------------------------------------------------
 # Background traffic                                [WB Simulation Parameters!C4, Level 3!B3]
@@ -96,11 +96,15 @@ class Config:
     """One experiment configuration. Defaults = the main sweep."""
     devices: int = 120
     interval_min: float = 15.0
-    relay_clock: str = "node"          # [DECISION] "node" (sweep) | "packet" (probe)
-    device_clock: str = "per_channel"  # [DECISION] "per_channel" (sweep) | "shared" (probe)
+    relay_clock: str = "node"          # [WB Level 3!B13] "node" (spec) | "packet" (probe only)
+    device_clock: str = "per_channel"  # [WB Level 3!B13] "per_channel" (spec) | "shared" (probe only)
     bg_clients_per_node: int = BG_CLIENTS_PER_NODE
     attacker_reads_record_type: bool = True   # [DECISION] yes in sweep; both in blend-in report
     lottery_enabled: bool = True       # False = positive control (immediate forwarding)
+    cv_hold: bool = False              # hardening check: lottery hold at C before CV-1 and at the
+                                       #   validator before CV-2 (same lottery, same parameters)
+    reg_hold: bool = False             # hardening check: lottery hold at F/I between seeing the
+                                       #   2-of-3 quorum and posting to the registry
     padding_enabled: bool = True       # False = positive control (raw sizes on the wire)
     background_enabled: bool = True
     nonblending_enabled: bool = True
