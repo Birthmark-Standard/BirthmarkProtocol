@@ -218,9 +218,13 @@ def gen_birthmark(w: World):
     # [DECISION: polling default, flagged as an assumption]
     reg_f = LT.next_tick(np.maximum(quorum, arr_f), w.phase[F])
     reg_i = LT.next_tick(np.maximum(quorum, arr_i), w.phase[I])
-    if cfg.reg_hold:   # hardening check only: hold the posting in F's / I's own lottery
-        reg_f = LT.release_time(r, reg_f, w.phase[F], cfg.relay_clock, cfg.lottery_enabled)
-        reg_i = LT.release_time(r, reg_i, w.phase[I], cfg.relay_clock, cfg.lottery_enabled)
+    if cfg.reg_hold:   # adopted: F and I each hold the posting in their own, independent lottery clock
+        if cfg.reg_hold_phase == "fresh":
+            ph_f, ph_i = r.uniform(0, P.TICK_S, S), r.uniform(0, P.TICK_S, S)
+        else:
+            ph_f, ph_i = w.phase[F], w.phase[I]
+        reg_f = LT.release_time(r, reg_f, ph_f, cfg.relay_clock, cfg.lottery_enabled)
+        reg_i = LT.release_time(r, reg_i, ph_i, cfg.relay_clock, cfg.lottery_enabled)
     reg_f = reg_f + w.proc(S)
     reg_i = reg_i + w.proc(S)
     mesh = _mesh(r)

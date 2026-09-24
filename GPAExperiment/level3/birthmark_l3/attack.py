@@ -113,7 +113,8 @@ def build_likelihoods(cfg: P.Config, n=1_000_000, seed=12345) -> Likelihoods:
     ph_f = rng.uniform(0, P.TICK_S, n)
     reg = LT.next_tick(np.maximum(quorum, chain(t0)), ph_f)
     if cfg.reg_hold:
-        reg = LT.release_time(rng, reg, ph_f, cfg.relay_clock, on)
+        ph_h = rng.uniform(0, P.TICK_S, n) if cfg.reg_hold_phase == "fresh" else ph_f
+        reg = LT.release_time(rng, reg, ph_h, cfg.relay_clock, on)
     reg = reg + _proc(rng, n)
     seq = reg - cv2
     term = arr_c - chain(t0)

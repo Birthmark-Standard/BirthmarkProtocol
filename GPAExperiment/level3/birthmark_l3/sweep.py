@@ -47,7 +47,14 @@ def jobs(runs_main: int, runs_probe: int, runs_sens: int):
     return J
 
 
-HARDENING = {"cv": dict(cv_hold=True), "reg": dict(reg_hold=True), "both": dict(cv_hold=True, reg_hold=True)}
+# Sequencing-attack comparisons. Every flag is pinned explicitly so the stored results keep their
+# meaning now that the adopted F/I hold is the default.
+#   none  : "before" - no hold anywhere (the original as-built protocol)
+#   cv    : hold at CV-1/2 only (tested and REJECTED)
+#   both  : CV-1/2 hold on top of the F/I hold
+#   fresh : the adopted F/I hold, but with a new random phase per posting instead of each node's clock
+HARDENING = {"none": dict(reg_hold=False, cv_hold=False), "cv": dict(reg_hold=False, cv_hold=True),
+             "both": dict(reg_hold=True, cv_hold=True), "fresh": dict(reg_hold=True, reg_hold_phase="fresh")}
 
 
 def hardening_jobs(runs: int, runs_both: int):
@@ -81,7 +88,7 @@ def _worker(job, cfg, i):
     from .wire_pools import Pools
     if "pools" not in _W:
         _W["pools"] = Pools()
-    key = (cfg.relay_clock, cfg.device_clock, cfg.lottery_enabled, cfg.cv_hold, cfg.reg_hold)
+    key = (cfg.relay_clock, cfg.device_clock, cfg.lottery_enabled, cfg.cv_hold, cfg.reg_hold, cfg.reg_hold_phase)
     if key not in _W:
         _W[key] = A.build_likelihoods(cfg)
     t = time.time()

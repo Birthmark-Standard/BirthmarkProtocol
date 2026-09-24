@@ -1,143 +1,140 @@
 # Level 3 results
 
-The sweep covered all 15 settings in the workbook table, with 200 independent runs each (3,000 runs), plus probes and sensitivity checks (280 runs). Each run simulates 90 minutes of traffic, about 3 million observed messages. Only submissions made in the 40 minutes after a 20-minute warm-up are scored.
+**Configuration: the adopted protocol.** Relay nodes use a node-wide lottery clock. The device holds each channel on its own, freshly drawn phase. F and I each hold their registry posting in the lottery, on their own independent node clocks, after seeing the 2-of-3 quorum. CV-1/2 has no hold. These are `params.Config`'s defaults, recorded in the workbook at Level 3 Experiment Design!B6 and B13 and Leg Catalog K26/K27.
 
-Methods and every modelling choice are described in [`README.md`](README.md). The machine-readable results are in `results/summary.json` and `results/summary.csv`.
+The sweep covered all 15 settings in the workbook table, with 200 independent runs each (3,000 runs), plus probes and sensitivity checks (280 runs). Each run simulates 90 minutes of traffic, about 3 million observed messages. Only submissions made in the 40 minutes after a 20-minute warm-up are scored. The sequencing-attack comparisons (no hold anywhere, the rejected CV-1/2 hold, both holds, and a fresh-phase check) add another 9,750 runs.
+
+Methods and every modelling choice are in [`README.md`](README.md). The machine-readable results are in `results/summary.json` and `results/summary.csv`.
 
 ![sweep](results/sweep.png)
 
 ## Headline
 
-**Neither attack beat the workbook's 1/L baseline at any setting**, from L = 4 to L = 40. The upper end of every 95% confidence interval stays below 1/L. So the sweep does not find an L floor below which the attack succeeds. Measured against the workbook's criterion, it finds none inside the tested range.
+**Neither attack beat the workbook's 1/L baseline at any setting**, from L = 4 to L = 40. The upper end of every 95% confidence interval stays below 1/L. So, on the workbook's criterion, there is no L floor inside the tested range below which the attack succeeds.
 
-That does not mean the traffic carries no linking signal. The two attacks differ:
+- **Main attack** (chain reconstruction, then origin-time grouping). This is at chance: it pairs correctly 0.02–0.10% of the time, the same as random assignment over the same candidate pairs. Per-hop matching succeeds only 1.4–2.2% of the time, because the node-wide lottery mixes held packets almost uniformly.
+- **Sequencing attack** (validator reply at C → registry posts from F and I). This leaves a real but weak signal. It scores **3.3–4.6× better than random assignment**, at 0.32–0.36 of 1/L in absolute terms.
 
-- **Main attack** (chain reconstruction followed by origin-time grouping). This is at chance. It pairs correctly 0.02–0.09% of the time, which matches random assignment over the same candidate pairs. The failure happens in Stage 1: the node-wide lottery mixes held packets almost uniformly, so per-hop matching succeeds only 1.4–2.2% of the time.
-- **Quorum-to-registry sequencing attack.** This one carries a real, if weak, signal. At every setting it is **4–6× better than random assignment**, at about **0.58 / L** in absolute terms. The cause is that F and I post to the registry soon after the gatekeeper quorum forms, and that quorum follows the validator round trip in time. The attack never becomes *confident*, though. No prediction in any setting had a top-vs-runner-up score gap of 2 nats or more. Accuracy in the top 10% of score gaps is only slightly above the overall accuracy (for example 14.6% vs 13.9% at L = 4). The attacker also cannot pick out which of its guesses are right.
+  The signal is uncalibrated. No prediction in any setting had a top-vs-runner-up score gap of even 1 nat. Accuracy in the top 10% of score gaps is barely above overall accuracy: for example 3.1% vs 3.1% at L = 10.7, and 10.7% vs 9.1% at L = 4. The attacker can't tell which of its guesses are right.
+
+  The adopted F/I hold narrows this signal by 35–43% compared with the original protocol. It does not close it.
 
 On the workbook's two-part criterion:
 
 1. **Raw accuracy vs 1/L.** Below 1/L everywhere, for both attacks.
-2. **Calibration.** Fails for both attacks: there are no high-confidence predictions to trust.
+2. **Calibration.** Fails for both attacks: there are no high-confidence predictions to act on.
 
-Both findings hold under the workbook's own framing. The next section explains why "below 1/L" is a weaker guarantee than it sounds.
+## Main sweep (adopted configuration)
 
-## Main sweep
+Cells show accuracy with a 95% bootstrap CI over runs. "Random assignment" means the same assignment step applied to random scores over the same feasible pairs.
 
-Cells show accuracy with a 95% bootstrap CI over runs. "Random-assignment baseline" means the same assignment step applied to random scores over the same feasible pairs.
-
-| Devices | Interval (min) | L | 1/L | Main attack | Sequencing attack | Sequencing ÷ random-assignment baseline | Bound: perfect chains | Bound: true terminals | Stage 1 hop accuracy |
+| Devices | Interval (min) | L | 1/L | Main attack | Sequencing attack | Sequencing ÷ random assignment | Bound: perfect chains | Bound: true terminals | Stage 1 hop accuracy |
 |---|---|---|---|---|---|---|---|---|---|
-| 40 | 10 | 8.0 | 0.125 | 0.03% [0.02–0.06] | 7.3% [7.0–7.5] | 4.5× | 6.7% | 2.7% | 2.0% |
-| 40 | 15 | 5.3 | 0.189 | 0.07% [0.04–0.11] | 10.8% [10.3–11.3] | 4.7× | 9.6% | 4.3% | 2.2% |
-| 40 | 20 | 4.0 | 0.250 | 0.09% [0.05–0.14] | 13.9% [13.3–14.5] | 4.0× | 12.2% | 5.7% | 2.2% |
-| 80 | 10 | 16.0 | 0.062 | 0.04% [0.03–0.06] | 3.7% [3.6–3.9] | 4.7× | 3.5% | 1.5% | 1.8% |
-| 80 | 15 | 10.7 | 0.093 | 0.05% [0.03–0.08] | 5.5% [5.2–5.7] | 4.8× | 5.1% | 2.1% | 2.0% |
-| 80 | 20 | 8.0 | 0.125 | 0.06% [0.03–0.08] | 7.2% [6.9–7.5] | 4.4× | 6.6% | 2.8% | 2.0% |
-| 120 | 10 | 24.0 | 0.042 | 0.03% [0.02–0.03] | 2.5% [2.4–2.6] | 5.4× | 2.3% | 0.9% | 1.7% |
-| 120 | 15 | 16.0 | 0.062 | 0.05% [0.03–0.07] | 3.7% [3.5–3.8] | 4.8× | 3.6% | 1.5% | 1.8% |
-| 120 | 20 | 12.0 | 0.083 | 0.05% [0.03–0.07] | 4.8% [4.6–5.0] | 4.3× | 4.7% | 1.9% | 1.9% |
-| 160 | 10 | 32.0 | 0.031 | 0.03% [0.02–0.04] | 1.8% [1.7–1.9] | 5.8× | 1.7% | 0.7% | 1.5% |
-| 160 | 15 | 21.3 | 0.047 | 0.03% [0.02–0.04] | 2.7% [2.6–2.8] | 4.9× | 2.7% | 1.0% | 1.7% |
-| 160 | 20 | 16.0 | 0.062 | 0.04% [0.02–0.05] | 3.6% [3.4–3.7] | 4.9× | 3.4% | 1.4% | 1.8% |
-| 200 | 10 | 40.0 | 0.025 | 0.02% [0.01–0.03] | 1.4% [1.4–1.5] | 5.5× | 1.4% | 0.6% | 1.4% |
-| 200 | 15 | 26.7 | 0.037 | 0.04% [0.03–0.06] | 2.1% [2.0–2.2] | 5.2× | 2.2% | 0.9% | 1.6% |
-| 200 | 20 | 20.0 | 0.050 | 0.04% [0.03–0.06] | 2.9% [2.8–3.0] | 5.5× | 2.7% | 1.2% | 1.7% |
+| 40 | 10 | 8 | 0.125 | 0.03% [0.02–0.06] | 4.3% [4.1–4.5] | 3.4× | 6.7% | 2.8% | 2.1% |
+| 40 | 15 | 5.3 | 0.189 | 0.07% [0.04–0.11] | 6.3% [6.0–6.6] | 3.5× | 9.6% | 4.3% | 2.2% |
+| 40 | 20 | 4 | 0.250 | 0.10% [0.05–0.15] | 9.1% [8.6–9.6] | 3.5× | 12.2% | 5.8% | 2.2% |
+| 80 | 10 | 16 | 0.062 | 0.03% [0.02–0.05] | 2.2% [2.1–2.3] | 3.7× | 3.5% | 1.5% | 1.8% |
+| 80 | 15 | 10.7 | 0.093 | 0.05% [0.03–0.07] | 3.1% [2.9–3.3] | 3.3× | 5.1% | 2.2% | 2.0% |
+| 80 | 20 | 8 | 0.125 | 0.08% [0.05–0.12] | 4.2% [4.0–4.5] | 3.4× | 6.6% | 3.0% | 2.0% |
+| 120 | 10 | 24 | 0.042 | 0.03% [0.02–0.05] | 1.5% [1.4–1.6] | 4.6× | 2.3% | 1.0% | 1.7% |
+| 120 | 15 | 16 | 0.062 | 0.03% [0.02–0.05] | 2.2% [2.0–2.3] | 3.5× | 3.6% | 1.5% | 1.8% |
+| 120 | 20 | 12 | 0.083 | 0.05% [0.03–0.07] | 2.9% [2.7–3.0] | 3.7× | 4.7% | 2.0% | 1.9% |
+| 160 | 10 | 32 | 0.031 | 0.03% [0.02–0.04] | 1.1% [1.0–1.1] | 3.9× | 1.7% | 0.7% | 1.5% |
+| 160 | 15 | 21.3 | 0.047 | 0.03% [0.02–0.04] | 1.6% [1.5–1.6] | 3.6× | 2.7% | 1.1% | 1.7% |
+| 160 | 20 | 16 | 0.062 | 0.03% [0.02–0.05] | 2.2% [2.1–2.3] | 4.0× | 3.4% | 1.4% | 1.8% |
+| 200 | 10 | 40 | 0.025 | 0.02% [0.01–0.02] | 0.8% [0.8–0.9] | 4.4× | 1.4% | 0.6% | 1.4% |
+| 200 | 15 | 26.7 | 0.037 | 0.03% [0.02–0.04] | 1.2% [1.2–1.3] | 4.1× | 2.2% | 0.8% | 1.6% |
+| 200 | 20 | 20 | 0.050 | 0.04% [0.03–0.06] | 1.7% [1.6–1.8] | 3.9× | 2.7% | 1.2% | 1.8% |
 
 ### Reading the bounds
 
 The two "bound" columns are not attacks. Each uses ground truth that the observer does not have, to measure how much information exists at a given stage:
 
-- **Perfect chains.** Stage 2 is given the true 3-hop chains. Even then it reaches only about 0.55/L. The reason is the device's independent per-channel hold: the only thing tying a credential chain to its content chains is the difference of two independent lottery draws.
-- **True terminal labels.** This is the workbook's original terminal-timing attack, given oracle labels. It reaches about 0.23/L. Terminal times are six lottery draws apart, which is even less informative than the origins.
+- **Perfect chains.** Stage 2 is given the true 3-hop chains. Even then it reaches only 0.49–0.58 of 1/L. The only thing tying a credential chain to its content chains is the difference of two independent device-side lottery draws.
+- **True terminal labels.** This is the workbook's original terminal-timing attack, given oracle labels. It reaches about 0.23 of 1/L.
 
-So the main attack's near-zero result is not only a weakness of hard-decision chain reconstruction. **Even perfect reconstruction would stay below 1/L.** A better Stage 1, such as soft or probabilistic inference instead of an assignment, is capped by the perfect-chains column.
+So **even perfect chain reconstruction would stay below 1/L.** A smarter Stage 1 is capped by the perfect-chains column.
 
 ### Why "below 1/L" is weaker than it sounds
 
-1/L assumes the only competitors are the L submissions in flight during a 2-minute window. The actual pairing window is much wider: a device hold of up to 5 minutes per channel, plus the relay hops. As a result, random assignment over the real candidate set scores about 5× below 1/L. The sequencing attack sits above that real chance level, at every setting, with tight intervals.
+1/L assumes the only competitors are the L submissions in flight during a 2-minute window. For the sequencing attack under the adopted hold, the real pairing window is several minutes wide, so random assignment scores 10–14× below 1/L. The sequencing attack sits above that real chance level at every setting, with tight intervals. It is a measurable leak, even though it never crosses 1/L. It is weak and uncalibrated, which is the "materially weaker privacy failure" the workbook describes.
 
-A reviewer could reasonably call that a measurable leak even though it never crosses 1/L. It is **weak and uncalibrated**: the attacker gets about one right in 1.7L tries and cannot tell which one. That is the "materially weaker privacy failure" the workbook describes.
+## Sequencing attack: adopted configuration vs before
 
-## Probes (80 devices, 15-min interval, L = 10.7; 20 runs each)
+![hardening](results/hardening.png)
 
-| Probe | Stage 1 hop accuracy | Main attack | Top-decile accuracy (main) | Origin-anchored: device → content terminal |
+Each cell shows sequencing-attack accuracy, then that accuracy divided by random assignment for the same variant (1× would mean no signal). All variants share the main sweep's seeds. The attacker's likelihood model is rebuilt for each variant, and a test checks it against the simulator's actual delays (`test_attacker_sequencing_model_matches_simulator`). The adopted and "before" columns have 200 runs per setting; so do the rejected CV-1/2 hold and the fresh-phase check; "F/I + CV-1/2" has 50.
+
+| Devices | Interval (min) | L | **Adopted: F/I hold** | Before: no hold anywhere | Change | Rejected: CV-1/2 hold only | F/I + CV-1/2 holds | Check: F/I hold, fresh phase per posting |
+|---|---|---|---|---|---|---|---|---|
+| 40 | 10 | 8 | **4.3% (3.4×)** | 7.3% (4.5×) | −41% | 9.7% (5.4×) | 5.1% (3.9×) | 4.3% (3.4×) |
+| 40 | 15 | 5.3 | **6.3% (3.5×)** | 10.8% (4.7×) | −41% | 14.5% (5.2×) | 7.4% (4.0×) | 6.7% (3.6×) |
+| 40 | 20 | 4 | **9.1% (3.5×)** | 13.9% (4.0×) | −35% | 18.4% (5.3×) | 10.6% (4.0×) | 8.5% (3.4×) |
+| 80 | 10 | 16 | **2.2% (3.7×)** | 3.7% (4.7×) | −42% | 4.6% (5.6×) | 2.6% (3.8×) | 2.3% (3.8×) |
+| 80 | 15 | 10.7 | **3.1% (3.3×)** | 5.5% (4.8×) | −43% | 7.3% (5.7×) | 4.1% (4.2×) | 3.3% (3.6×) |
+| 80 | 20 | 8 | **4.2% (3.4×)** | 7.2% (4.4×) | −41% | 9.5% (5.6×) | 5.5% (4.2×) | 4.5% (3.8×) |
+| 120 | 10 | 24 | **1.5% (4.6×)** | 2.5% (5.4×) | −41% | 3.1% (6.8×) | 1.6% (3.7×) | 1.5% (3.5×) |
+| 120 | 15 | 16 | **2.2% (3.5×)** | 3.7% (4.8×) | −41% | 4.8% (5.6×) | 2.8% (4.7×) | 2.3% (3.7×) |
+| 120 | 20 | 12 | **2.9% (3.7×)** | 4.8% (4.3×) | −40% | 6.4% (5.6×) | 3.3% (3.9×) | 3.1% (3.8×) |
+| 160 | 10 | 32 | **1.1% (3.9×)** | 1.8% (5.8×) | −42% | 2.3% (6.5×) | 1.3% (4.8×) | 1.1% (3.5×) |
+| 160 | 15 | 21.3 | **1.6% (3.6×)** | 2.7% (4.9×) | −42% | 3.5% (6.0×) | 1.7% (3.7×) | 1.8% (3.3×) |
+| 160 | 20 | 16 | **2.2% (4.0×)** | 3.6% (4.9×) | −39% | 4.7% (5.7×) | 2.4% (4.2×) | 2.2% (3.7×) |
+| 200 | 10 | 40 | **0.8% (4.4×)** | 1.4% (5.5×) | −43% | 1.7% (6.2×) | 1.0% (4.4×) | 0.9% (3.6×) |
+| 200 | 15 | 26.7 | **1.2% (4.1×)** | 2.1% (5.2×) | −42% | 2.8% (5.6×) | 1.5% (4.8×) | 1.3% (3.3×) |
+| 200 | 20 | 20 | **1.7% (3.9×)** | 2.9% (5.5×) | −41% | 3.9% (6.4×) | 2.2% (4.2×) | 1.8% (3.6×) |
+
+- **The adopted F/I hold narrows the signal by 35–43% at every setting.** Above-chance signal falls from 4.0–5.8× to 3.3–4.6×.
+- **The CV-1/2 hold (rejected) makes the signal stronger:** 22–35% more accurate than "before" at every setting. The attack anchors on the validator's reply arriving at C, which is visible with or without a hold. The signal comes from what follows: gatekeeper lottery, then quorum, then the post. Delaying the credential side makes it more likely that the content is already waiting at F and I when quorum forms, which ties the post more tightly to quorum. Adding it on top of the F/I hold also loses ground (4.1% vs 3.1% at L = 10.7).
+- **Closing the signal fully needs more than one lottery draw.** Coarse registry-posting epochs are one candidate. That was not tested.
+
+### F and I hold clocks are independent
+
+Level 3 Experiment Design!B13 requires F and I each to hold on their own clock, not shared or coupled with each other. This is the third instance of a clock-coupling risk in this project. The implementation was checked directly, not assumed:
+
+- **Code.** F's hold runs on F's node clock and I's on I's, with phases drawn independently for each of the 20 nodes. Each hold makes its own lottery draw. F and I are always different nodes.
+- **Measured over 20 runs of 200 devices each (about 37,000 submissions):**
+  - F and I were never the same node.
+  - Every post sits on its own node's grid, to within 3 ms.
+  - F-vs-I post-phase differences match those of random node pairs (KS p-values uniform across runs, p = 0.90).
+  - F and I hold lengths are uncorrelated (Spearman p-values uniform, p = 0.11).
+  - `test_fi_hold_clocks_are_independent` keeps this checked.
+- **The 35–43% result predates the explicit requirement, and it holds.** The first run already used independent clocks. The re-run under the adopted default reproduces its sequencing accuracies exactly, at every setting.
+- **"Freshly-phased" wording, checked empirically.** A variant that draws a new phase for every posting, instead of using each node's clock, gives 0–13% *more* signal (significant at some settings, for example 0.91% vs 0.81% at L = 40). That is not coupling. With the node clock, the hold starts on a poll tick of that same clock, so it waits whole ticks. A fresh phase fires at a random point in the first tick, which makes the average hold about 5 s shorter. The per-node clock in the spec is the better choice.
+
+## Clock-model probes (80 devices, 15-min interval, L = 10.7; 20 runs each)
+
+| Model | Stage 1 hop accuracy | Main attack | Top-decile accuracy (main) | Origin-anchored: device → content terminal |
 |---|---|---|---|---|
-| Sweep model: node-wide relay clock, per-channel device phase | 2.0% | 0.05% | 0.2% | 0.10% |
-| Per-packet relay timers (phase leak at relays) | **98.0%** | 5.2% | 5.9% | **99.9%** |
-| One shared device clock (phase leak at the device) | 1.9% | 0.0% | 0.0% | 0.02% |
-| Both leaks together | **97.7%** | **65.9%** [64.3–67.5] | **91.0%** | **99.9%** |
-| Positive control: lottery off | 99.9% | **99.2%** | 99.8% | 100% |
+| Specified model: node-wide relay clock, per-channel device phase (sweep, 200 runs) | 2.0% | 0.05% [0.03–0.07] | 0.2% | 0.09% |
+| Per-packet relay timers (phase leak at relays) | 98.3% | 5.32% [4.72–5.90] | 5.8% | 99.81% |
+| One shared device clock (phase leak at the device) | 1.9% | 0.05% [0.00–0.12] | 0.0% | 0.07% |
+| Both leaks together | 97.3% | 64.84% [62.85–66.65] | 91.7% | 99.72% |
+| Positive control: lottery off | 99.9% | 99.18% [98.95–99.42] | 99.8% | 100.00% |
 
-- **The attack works.** With the lottery switched off, the same code pairs 99.2% of submissions. With both phase leaks present, it pairs 65.9%, and it is well calibrated: 91% accurate among its most confident tenth. The near-zero results in the sweep come from the defence, not from a broken attack.
-- **Per-packet timers leak at every hop.** With them, the arrival phase survives each hop to within milliseconds, and hop-by-hop tracing becomes 98% accurate. The main attack still fails in that probe, but only because the per-channel device phase blocks Stage 2. Anyone who can see device IPs traces device → ContentHash 99.9% of the time. **The node-wide clock is load-bearing and should be specified explicitly.** The workbook's "each held packet as a task rolling its release probability each tick" reads most naturally as the leaky version.
-- **A shared device clock leaks at the origin.** With perfect chains, it would let Stage 2 pair 68% of submissions (bound column in `summary.json`). **The per-channel device phase is also load-bearing.** Each defence covers the other's stage. Remove both, and the attack succeeds with confidence.
+- **The attack works.** With the lottery switched off, the same code pairs 99.2% of submissions. With both phase leaks present, it pairs 64.8%, and is 91.7% accurate among its most confident tenth. The near-zero results in the sweep come from the defence, not a broken attack.
+- **Per-packet timers leak at every hop.** Hop-by-hop tracing becomes 98% accurate. The main attack still fails in that probe, because the per-channel device phase blocks Stage 2. But anyone who can see device IPs traces device → ContentHash 99.8% of the time. **The node-wide clock is load-bearing** (Level 3 Experiment Design!B13).
+- **A shared device clock leaks at the origin.** With perfect chains, Stage 2 would pair 68% of submissions. **The per-channel device phase is also load-bearing.** Each defence covers the other's stage.
 
-## Origin-anchored trace (reported separately, as agreed)
+## Origin-anchored trace (reported separately)
 
 Here the observer can see each device's IP at its first hop.
 
-- **Linking a device's credential submission to its content submission at the first hop is trivial.** All three first-hop packets leave from the device's IP. 37–61% of submissions are fully unambiguous, meaning the device has no other submission within ±5 minutes. The remaining submissions are still attributed to the right device, but can be confused with that device's other submissions.
-- **Linking the device to its ContentHash is not trivial.** That requires tracing through two relay hops. Under the sweep model it succeeds only 0.05–0.11% of the time. The relays mix well even when the start point is known.
-- **With per-packet timers**, the same trace succeeds 99.9% of the time.
-
-So the unmodelled anonymizing layer is the only thing protecting the first-hop link itself. That is exactly the precondition you flagged. Given that layer, the timing defence protects the path onward to the ContentHash.
+- **Linking a device's credential submission to its content submission at the first hop is trivial.** All three first-hop packets leave from the device's IP. 37–61% of submissions are fully unambiguous (the device has no other submission within ±5 minutes). The rest are still attributed to the right device, but can be confused with that device's other submissions. Only the unmodelled IP-hiding layer protects this link.
+- **Linking the device to its ContentHash is not trivial.** That still requires tracing through two relays. Under the adopted configuration it succeeds 0.06–0.12% of the time. With per-packet timers it succeeds 99.8% of the time.
 
 ## Background and blend-in (120 devices, 15-min interval, L = 16; 50 runs each)
 
 | Background clients per node | Stage 1 hop accuracy | Main attack | Sequencing attack |
 |---|---|---|---|
-| 0 | 8.5% | 0.12% | 3.9% |
-| 5 | 5.1% | 0.06% | 3.9% |
-| 25 (sweep) | 1.8% | 0.05% | 3.7% |
-| 100 | 0.6% | 0.01% | 3.9% |
+| 0 | 8.5% | 0.13% | 2.2% |
+| 5 | 5.1% | 0.04% | 2.2% |
+| 25 (sweep) | 1.8% | 0.03% | 2.2% |
+| 100 | 0.6% | 0.02% | 2.2% |
 
 - Background traffic makes first-hop matching harder, but the main attack is at chance even with **no** background: the lottery alone defeats it.
 - Background does nothing against the sequencing attack. Its signals are validator replies and registry gossip bursts, and neither can be confused with background traffic.
-- **Sanity check on non-blending traffic.** No keepalive ever entered a reconstructed chain. Across all 3,000 sweep runs, 117 bulk-transfer records did (out of about 11.7 million chain slots). Each was the final, partial record of a transfer, which can land in the 442–482 B window by chance.
-- **Observer reads the record type vs ignores it.** This makes no measurable difference: 0.05% main accuracy either way. Ignoring it adds about 1,000 DNS responses per run to roughly 37,000 in-window background records.
-
-## Hardening the sequencing attack
-
-The sequencing attack is the one attack with a measurable residual signal, so it was re-run across the full sweep with a lottery hold added in each of two places. Both holds use the same mechanism and parameters as the relay hops (10 s ticks, p = 0.0833, forced at tick 30, on the holding node's own clock):
-- **CV hold:** C holds CV-1 before sending it, and the validator holds CV-2 before replying.
-- **F/I hold:** F and I each hold their registry posting after they see the 2-of-3 quorum.
-
-200 runs per setting (50 for both holds together), on the same seeds as the main sweep. The attacker's likelihood is rebuilt for each variant, and a test checks it against the simulator's actual delays (`test_attacker_sequencing_model_matches_simulator`). A weaker result therefore can't be explained by a mis-specified attacker.
-
-![hardening](results/hardening.png)
-
-| Devices | Interval (min) | L | As built | Hold at CV-1/2 | Hold at F/I before posting | Both holds |
-|---|---|---|---|---|---|---|
-| 40 | 10 | 8 | 7.3% (4.5×) | 9.7% (5.4×) | 4.3% (3.6×) | 5.1% (3.9×) |
-| 40 | 15 | 5.3 | 10.8% (4.7×) | 14.5% (5.2×) | 6.3% (3.4×) | 7.4% (4.0×) |
-| 40 | 20 | 4 | 13.9% (4.0×) | 18.4% (5.3×) | 9.1% (3.6×) | 10.6% (4.0×) |
-| 80 | 10 | 16 | 3.7% (4.7×) | 4.6% (5.6×) | 2.2% (3.8×) | 2.6% (3.8×) |
-| 80 | 15 | 10.7 | 5.5% (4.8×) | 7.3% (5.7×) | 3.1% (3.5×) | 4.1% (4.2×) |
-| 80 | 20 | 8 | 7.2% (4.4×) | 9.5% (5.6×) | 4.2% (3.1×) | 5.5% (4.2×) |
-| 120 | 10 | 24 | 2.5% (5.4×) | 3.1% (6.8×) | 1.5% (4.7×) | 1.6% (3.7×) |
-| 120 | 15 | 16 | 3.7% (4.8×) | 4.8% (5.6×) | 2.2% (3.9×) | 2.8% (4.7×) |
-| 120 | 20 | 12 | 4.8% (4.3×) | 6.4% (5.6×) | 2.9% (3.6×) | 3.3% (3.9×) |
-| 160 | 10 | 32 | 1.8% (5.8×) | 2.3% (6.5×) | 1.1% (4.3×) | 1.3% (4.8×) |
-| 160 | 15 | 21.3 | 2.7% (4.9×) | 3.5% (6.0×) | 1.6% (3.8×) | 1.7% (3.7×) |
-| 160 | 20 | 16 | 3.6% (4.9×) | 4.7% (5.7×) | 2.2% (3.9×) | 2.4% (4.2×) |
-| 200 | 10 | 40 | 1.4% (5.5×) | 1.7% (6.2×) | 0.8% (4.0×) | 1.0% (4.4×) |
-| 200 | 15 | 26.7 | 2.1% (5.2×) | 2.8% (5.6×) | 1.2% (4.2×) | 1.5% (4.8×) |
-| 200 | 20 | 20 | 2.9% (5.5×) | 3.9% (6.4×) | 1.7% (4.0×) | 2.2% (4.2×) |
-
-Each cell shows sequencing-attack accuracy, then that accuracy divided by the random-assignment baseline for the same variant. 1× would mean no signal.
-
-**Result: neither hold closes the signal.**
-
-- **The CV-1/2 hold makes the attack stronger, not weaker.** Accuracy rises at all 15 settings, by 22–35% (for example 5.5% → 7.3% at L = 10.7). The signal above chance rises too, from about 5× to about 6×. It still stays under 1/L everywhere.
-
-  The reason is where the signal lives. The attack's anchor is the CV-2 *arrival* at C, which is identifiable with or without a hold, because validators are distinct endpoints. The signal comes from what happens after that arrival: the GK lottery, then quorum, then the F/I poll, then the post. A hold before CV-2 arrives only pushes the whole credential side later. That makes it more likely that the content has already reached F and I by the time quorum forms, so their posts track the quorum even more tightly.
-
-  The CV hold does remove a different exposure: the observer can no longer spot credential terminals from CV-1 timing (detection falls from 99% to 0.1%).
-- **The F/I hold narrows the signal but does not close it.** It cuts accuracy by 35–43% at every setting (5.5% → 3.1% at L = 10.7). The signal above chance falls from about 4–6× to 3.1–4.7×. One extra lottery draw widens the quorum-to-post delay, but it doesn't break the link between the two.
-- **Both holds together** land between the two single holds (4.1% at L = 10.7). The CV hold partly undoes the F/I hold's gain.
-
-**Practical reading:** if the goal is to shrink the sequencing signal further, the hold belongs at F/I before posting, not at CV-1/2. A CV-1/2 hold is still worth considering for a separate reason: it hides credential-chain endings. Closing the sequencing signal fully would take something stronger than one more lottery draw. That was not tested here. Candidates include coarse registry-posting epochs, or F and I posting on independent schedules rather than right after quorum.
+- **Sanity check on non-blending traffic.** No keepalive ever entered a reconstructed chain. Across all 3,000 sweep runs, 128 bulk-transfer records did, out of about 11.7 million chain slots. Each was the final, partial record of a transfer, which can land in the 442–482 B window by chance.
+- **Observer reads the record type vs ignores it.** This makes no meaningful difference. Ignoring it adds about 1,000 DNS responses per run to roughly 37,000 in-window background records.
 
 ## Findings that don't depend on the sweep
 
@@ -155,15 +152,15 @@ Both of the workbook corrections below came out of this experiment and are now r
 2. **What the 442–482 B wire window actually blends with (Simulation Parameters!D3):**
    - TLS ClientHellos: none. 0 of 360 real OpenSSL ClientHellos landed in the window. The RFC 7685 padding extension moves ClientHellos *out of* 256–511 B: with padding they are 517 B on the wire; without it, 293–326 B; resumed sessions, 556–608 B.
    - TLS 1.3 application-data records: 2.1% fall in the window. This is the only real cover.
-   - DNSSEC/EDNS0 responses: 0.7% of the 600 built for this experiment fell in the window. The corrected workbook says DNS "was not tested against this correction". It was tested, with this result; see the note to the workbook owner below.
+   - DNSSEC/EDNS0 responses: 0.7% of the 600 built for this experiment fell in the window. The corrected workbook says DNS "was not tested against this correction". It was tested, with this result.
 
    The sweep result doesn't depend on blend-in: the protection comes from the lottery and clock design. *(An earlier workbook draft cited RFC 7685 as putting ClientHellos inside the window. The citation was backwards.)*
-3. **The observer can find C and the moment each credential chain ends.** C contacts the validator immediately, with no lottery, so the CV-1 timing rule detects credential terminals over 99% of the time. A lottery hold at CV-1/2 removes this (detection drops to 0.1%). **This is not the source of the sequencing signal, though;** see *Hardening the sequencing attack* below. An earlier version of this report said it was, and that attribution was wrong.
+3. **The observer can find C and the moment each credential chain ends.** CV-1/2 has no hold (a hold there was tested and rejected; see above), so C contacts the validator immediately, and the CV-1 timing rule detects credential terminals 99.5% of the time. That alone doesn't link anything, and it is not the source of the sequencing signal. A CV-1/2 hold would hide it (detection falls to 0.1%), but only at the cost of a stronger sequencing signal.
 4. **The lottery's mean hold is 111 s, not 120 s.** Truncation at 30 ticks shortens it. The L column was used as printed.
 
 ## Where this model is generous to the defender
 
 - The observer does not use TCP 5-tuples. A real observer would see connection identity, which lets it discard background request/response transactions at ingress. That would mainly help Stage 1 at the first hop. Stage 2 would still be capped by the perfect-chains bound.
-- The sequencing attack pairs the F and I posts independently. A joint model would exploit the fact that both post within about 10 s of the same quorum, and could do somewhat better.
-- F/I polling behaviour is an assumption (10 s tick, post on 2-of-3). The sequencing result depends on it directly.
+- The sequencing attack pairs the F and I posts independently. Under the adopted hold, each post is delayed by its own independent lottery draw, so a joint model of the two posts has less to exploit than it would have without the hold. It could still do somewhat better than pairing them separately.
+- F/I polling behaviour (10 s tick, then the adopted hold) is partly an assumption. The polling interval is not specified beyond reusing the lottery's tick. The sequencing result depends on it directly.
 - Latencies, the gossip envelope size, and the background mix are defaults. They are listed in `params.py`.

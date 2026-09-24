@@ -80,9 +80,10 @@ def _timings(ev, leg_a, leg_b):
     return np.array([b[s] - a[s] for s in a if s in b])
 
 
-@pytest.mark.parametrize("clock", ["node", "packet"])
-def test_fastsim_matches_reference(pools, clock):
-    cfg = P.Config(devices=40, interval_min=10, relay_clock=clock, bg_clients_per_node=0, nonblending_enabled=False)
+@pytest.mark.parametrize("clock,hold", [("node", True), ("packet", True), ("node", False)])
+def test_fastsim_matches_reference(pools, clock, hold):
+    cfg = P.Config(devices=40, interval_min=10, relay_clock=clock, reg_hold=hold, bg_clients_per_node=0,
+                   nonblending_enabled=False)
     ref = R.simulate(cfg, 21, 3 * 3600)
     assert ref.verify_registry()["invalid_postings"] == 0
     assert ref.verify_registry()["finalized"] == ref.verify_registry()["submissions"]
@@ -97,7 +98,8 @@ def test_fastsim_matches_reference(pools, clock):
     assert ks_2samp(x, y).pvalue > 0.001
 
 
-@pytest.mark.parametrize("hold", [dict(), dict(cv_hold=True), dict(reg_hold=True)])
+@pytest.mark.parametrize("hold", [dict(reg_hold=False), dict(reg_hold=False, cv_hold=True), dict(),
+                                  dict(reg_hold_phase="fresh")])
 def test_attacker_sequencing_model_matches_simulator(pools, hold):
     """The attacker's Monte-Carlo sequencing model describes what the simulator produces, including
     under the hardening holds - otherwise a weaker result could just mean a mis-specified attacker."""
@@ -126,6 +128,24 @@ def test_shared_device_clock_probe_breaks_stage2(pools):
     cfg = P.Config(devices=80, interval_min=15, device_clock="shared")
     out = A.attack_run(F.simulate(cfg, 6, pools), A.build_likelihoods(cfg, n=300_000), pools)
     assert out["diag"]["oracle_stage2"]["correct"].mean() > 0.4
+
+
+def test_fi_hold_clocks_are_independent(pools):
+    """F and I never share a node, each posts on its own node's grid, and their hold lengths are
+    independent - the third clock-coupling check, stated explicitly in Level 3!B13."""
+    from scipy.stats import spearmanr
+    cfg = P.Config(devices=200, interval_min=10, bg_clients_per_node=0, nonblending_enabled=False)
+    run = F.simulate(cfg, 5, pools)
+    s, ph = run.subs, run.phase
+    assert not np.any(s["F"] == s["I"])
+    for srv, t in (("F", "reg_f"), ("I", "reg_i")):
+        off = np.mod(s[t] - ph[s[srv]], P.TICK_S)
+        assert np.all(np.minimum(off, P.TICK_S - off) < 0.0031)
+    start_f = LT.next_tick(np.maximum(s["quorum"], s["arr_f"]), ph[s["F"]])
+    start_i = LT.next_tick(np.maximum(s["quorum"], s["arr_i"]), ph[s["I"]])
+    hf, hi = np.round((s["reg_f"] - start_f) / 10), np.round((s["reg_i"] - start_i) / 10)
+    assert hf.min() >= 1 and hi.min() >= 1 and hf.max() <= P.MAX_TICKS
+    assert abs(spearmanr(hf, hi)[0]) < 0.08
 
 
 def test_nonblending_traffic_never_enters_chains(pools):

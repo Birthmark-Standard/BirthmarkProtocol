@@ -142,7 +142,8 @@ def summarize():
         out["hardening"][name] = dict(
             variant=name.split("_")[1], devices=cfg.devices, interval_min=cfg.interval_min, L_workbook=L,
             runs=len(runs), sequencing=_attack_block(runs, "seq", "seq_chance_correct", L, rng),
-            cred_terminal_detected=float(np.mean([r["cred_terminal_detect"] for r in runs])))
+            cred_terminal_detected=float(np.mean([r["cred_terminal_detect"] if "cred_terminal_detect" in r
+                                                   else r["diag"]["cred_terminal_detect"] for r in runs])))
     pools = Pools()
     out["wire_pools"] = pools.summary()
     out["size_verification"] = [dict(leg=l, workbook=w, measured=m, note=n) for l, w, m, n in size_verification_report()]
@@ -237,8 +238,11 @@ def _hardening_figure(out, main, names, Ls, xs, plt):
     for a in ax:
         a.set_facecolor("#fcfcfb")
         a.grid(True, axis="y", lw=0.6)
-    series = [("as built (no extra hold)", None, "#eb6834"), ("hold at CV-1/2", "cv", "#2a78d6"),
-              ("hold at F/I before posting", "reg", "#1baf7a"), ("both holds", "both", "#eda100")]
+    series = [("ADOPTED: F/I hold, own node clocks", None, "#eb6834"),
+              ("before: no hold anywhere", "none", "#8a938f"),
+              ("rejected: hold at CV-1/2 (no F/I hold)", "cv", "#2a78d6"),
+              ("F/I hold + CV-1/2 hold", "both", "#eda100"),
+              ("check: F/I hold, fresh phase per posting", "fresh", "#1baf7a")]
     for label, v, col in series:
         blocks = [main[n]["sequencing"] if v is None else H.get(f"harden_{v}_{n[5:]}", {}).get("sequencing")
                   for n in names]
@@ -255,7 +259,7 @@ def _hardening_figure(out, main, names, Ls, xs, plt):
     ax[0].set_yscale("log")
     ax[0].set_xlabel("L (workbook Little's-law anonymity set)")
     ax[0].set_ylabel("Sequencing-attack pairing accuracy")
-    ax[0].set_title("Sequencing attack with added lottery holds (95% CI)")
+    ax[0].set_title("Sequencing attack: adopted configuration vs comparisons (95% CI)")
     ax[0].legend(fontsize=8)
     ax[1].axhline(1.0, color="black", lw=1, ls=":", label="random assignment (= 1x)")
     ax[1].set_ylim(bottom=0)
