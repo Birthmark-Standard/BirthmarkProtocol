@@ -29,7 +29,7 @@ citations. Results are in [`RESULTS.md`](RESULTS.md).
 pip install -r requirements.txt
 python -m pytest -q tests                        # ~1 min
 python -m birthmark_l3.sweep --jobs all          # ~70 min on 4 cores; resumable
-python -m birthmark_l3.sweep --jobs harden     # optional: sequencing attack with added holds (~35 min)
+python -m birthmark_l3.sweep --jobs harden     # optional: sequencing-attack comparisons (~50 min)
 python -m birthmark_l3.report
 ```
 
@@ -39,10 +39,10 @@ python -m birthmark_l3.report
 
 **Legs.** Every leg in the Leg Catalog is emitted:
 - Cred-1/2/3, ContA-1/2/3 and ContB-1/2/3.
-- CV-1/CV-2. No lottery here: the workbook applies the lottery only to relay hops and the GK fan-out.
+- CV-1/CV-2. No lottery hold. A hold here was tested and rejected (Level 3 Experiment Design!B6).
 - GK-1/2/3. Each leg is held by its own lottery draw at C.
 - Post-1/2/3. These are internal: they appear only as board-post times and never on an observed link.
-- Reg-1/Reg-2. These appear as gossipsub v1.1 traffic: the origin flood-publishes to every peer, then each node forwards on first receipt to its 6 mesh peers.
+- Reg-1/Reg-2. F and I post after the adopted lottery hold. The posts appear as gossipsub v1.1 traffic: the origin flood-publishes to every peer, then each node forwards on first receipt to its 6 mesh peers.
 
 **Padding.** Every leg except Reg is padded *to* a target drawn uniformly from 420–460 B, with the padding inside the transit encryption. It then travels as one TLS 1.3 application-data record, which measures at 442–482 B on the wire.
 
@@ -62,7 +62,8 @@ python -m birthmark_l3.report
 | TLS record type / protocol | **The observer reads it** in the sweep, because a real GPA can. Blend-in is also reported with it ignored. |
 | External sources | **All ingress is anonymised.** Devices and background clients both appear as "external → node". Device IPs are used only in the separate origin-anchored section. |
 | Background volume | 25 clients per node. Sensitivity checked at 0, 5 and 100. |
-| When do F and I post to the registry? | They poll the boards on their own 10 s tick and post once 2-of-3 have posted and their content has arrived. **This is an assumption**, and it drives the sequencing attack. |
+| When do F and I post to the registry? | They poll the boards on their own 10 s tick. Once 2-of-3 have posted and their content has arrived, each **holds the posting in the lottery on its own node clock**, and F's and I's clocks are independent of each other. This is **adopted** (Level 3 Experiment Design!B6, B13; Leg Catalog K26/K27). The polling interval itself is still an assumption. |
+| Hold at CV-1/2? | **No. Rejected** (Level 3 Experiment Design!B6): a hold there strengthens the sequencing signal. It is kept only as a labelled comparison. |
 | Real TLS | Byte sizes come from real `ssl` output. Timing is virtual. The pools are diverse (360 distinct session size signatures, 48 distinct ClientHello sizes, 252 distinct DNS response sizes), not one canonical capture reused. |
 
 ## Flagged defaults (not in the workbook)
@@ -109,4 +110,10 @@ All of them use `scipy.optimize.linear_sum_assignment` and Monte Carlo likelihoo
 
 **Calibration.** For each prediction, the gap between the top and runner-up scores. Reported as accuracy in the top 10% of gaps and at fixed gaps (≥ 1, 2 and 3 nats), plus a reliability table of the attacker's own posterior.
 
-**Hardening check.** `Config(cv_hold=True)` adds a lottery hold at C before CV-1 and at the validator before CV-2. `Config(reg_hold=True)` adds one at F and I between seeing quorum and posting. The `harden_*` jobs run only the sequencing attack across the sweep under each hold. The attacker's model is rebuilt for each variant. Neither option is part of the specified protocol; see RESULTS.md.
+**Sequencing-attack comparisons.** The adopted F/I hold is the default. The `harden_*` jobs run only the sequencing attack across the sweep, with every flag pinned so their results keep their meaning:
+- `none`: no hold anywhere. This is the original protocol, and the "before" comparison.
+- `cv`: CV-1/2 hold only. Tested and rejected.
+- `both`: the F/I hold plus the CV-1/2 hold.
+- `fresh`: the F/I hold with a new random phase per posting, which checks the clock wording.
+
+The attacker's model is rebuilt for each variant. See RESULTS.md.
