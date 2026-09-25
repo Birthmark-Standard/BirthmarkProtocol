@@ -18,7 +18,7 @@ import numpy as np
 
 from . import lottery as LT
 from . import params as P
-from .crypto_legs import raw_size_table
+from .crypto_legs import raw_size_table, ring_gk_raw_size
 from .wire_pools import Pools
 
 EXT = 99                 # every external host (device or background client) as the GPA labels it
@@ -105,9 +105,12 @@ class World:
         return self.rng.uniform(*P.PROC_MS, n) / 1000
 
     def relay_size(self, leg_family: str, n):
+        ring = leg_family == "GK" and self.cfg.ring_sig
         if not self.cfg.padding_enabled:
-            return np.full(n, raw_sizes()[leg_family] + self.pools.tls13_overhead)
-        target = self.rng.integers(P.PAD_MIN, P.PAD_MAX + 1, n)
+            raw = ring_gk_raw_size() if ring else raw_sizes()[leg_family]
+            return np.full(n, raw + self.pools.tls13_overhead)
+        lo, hi = P.PAD_GK_RING if ring else (P.PAD_MIN, P.PAD_MAX)
+        target = self.rng.integers(lo, hi + 1, n)
         return target + self.pools.tls13_overhead      # measured: one TLS 1.3 record per packet
 
 
@@ -122,7 +125,16 @@ def _chain(w: World, t0, dev, first, second, dest, legs, fam, sub):
     for nxt, leg, f in ((second, legs[1], fam[1]), (dest, legs[2], fam[2])):
         rel = LT.release_time(w.rng, arr, w.phase[cur], cfg.relay_clock, cfg.lottery_enabled) + w.proc(n)
         arr = rel + w.lat_int[cur, nxt] + w.jit(n)
-        ids.append(w.ev.add(rel, arr, cur, nxt, w.relay_size(f, n), P.RT_APPDATA, K_BIRTHMARK, leg, sub))
+        self_hop = cur == nxt              # Random hop is also the destination (insider_v2 only)
+        if not self_hop.any():
+            ids.append(w.ev.add(rel, arr, cur, nxt, w.relay_size(f, n), P.RT_APPDATA, K_BIRTHMARK, leg, sub))
+        else:                              # held in the lottery as usual, then delivered locally
+            m = ~self_hop
+            e = np.full(n, -1, dtype=np.int64)
+            e[m] = w.ev.add(rel[m], arr[m], cur[m], nxt[m], w.relay_size(f, int(m.sum())), P.RT_APPDATA,
+                            K_BIRTHMARK, leg, sub[m])
+            ids.append(e)
+            arr = np.where(self_hop, rel, arr)
         cur = nxt
     return arr, ids
 
@@ -165,21 +177,26 @@ def _mesh(rng):
             for v in range(P.N_NODES)}
 
 
-def _catalog_roles(r, S):
-    """Leg Catalog K3 role rules. C, F, I distinct; first hops A, D, G distinct and never C, F or I
-    (device-table routing); each Random hop excludes only its own first hop and destination; the
-    three gatekeepers are any three nodes."""
+def _insider_v2_roles(r, S):
+    """Insider Experiment Design!B3-B4. One active set of three gatekeepers for the run; C, F, I
+    from the other 17; first hops A, D, G distinct and never C, F or I (device-table routing,
+    gatekeepers allowed); each Random hop excludes only its own first hop."""
     N, idx = P.N_NODES, np.arange(S)
-    perm = np.argsort(r.random((S, N)), axis=1)
-    C, F, I, A, D, G = perm[:, :6].T
+    gk_set = r.permutation(N)[:3]
+    pool = np.setdiff1d(np.arange(N), gk_set)
+    cfi = pool[np.argsort(r.random((S, pool.size)), axis=1)[:, :3]]
+    C, F, I = cfi.T
+    x = r.random((S, N))
+    for e in (C, F, I):
+        x[idx, e] = 2.0
+    A, D, G = np.argsort(x, axis=1)[:, :3].T
 
     def pick(excl):
-        x = r.random((S, N))
-        for e in excl:
-            x[idx, e] = 2.0
-        return x.argmin(axis=1)
-    B, E, Hh = pick((A, C)), pick((D, F)), pick((G, I))
-    gk = np.argsort(r.random((S, N)), axis=1)[:, :3]
+        y = r.random((S, N))
+        y[idx, excl] = 2.0
+        return y.argmin(axis=1)
+    B, E, Hh = pick(A), pick(D), pick(G)
+    gk = np.tile(gk_set, (S, 1))
     return C, F, I, A, B, D, E, G, Hh, gk
 
 
@@ -194,8 +211,8 @@ def gen_birthmark(w: World):
     S = t0.shape[0]
     sub = np.arange(S)
     val = VAL0 + dev % P.N_VALIDATORS
-    if cfg.role_rules == "catalog":
-        C, F, I, A, B, D, E, G, Hh, gk = _catalog_roles(r, S)
+    if cfg.role_rules == "insider_v2":
+        C, F, I, A, B, D, E, G, Hh, gk = _insider_v2_roles(r, S)
     else:
         # role slots: nine distinct nodes so no intermediary or first hop is shared across
         # channels (G6), and A != C, B not in {A, C} etc. as the Leg Catalog requires.
@@ -225,25 +242,21 @@ def gen_birthmark(w: World):
     cv2_a = cv2_s + w.lat_int[val, C] + w.jit(S)
     cv2_id = w.ev.add(cv2_s, cv2_a, val, C, w.relay_size("CV-2", S), P.RT_APPDATA, K_BIRTHMARK, CV2, sub)
 
-    # gatekeeper fan-out: staggered, each leg its own lottery draw at C
+    # gatekeeper fan-out: staggered, each leg its own lottery draw at C, to all three gatekeepers
     posts, gk_ids = np.empty((S, 3)), []
-    gk_valid = gk != C[:, None]          # only possible under role_rules="catalog"
+    gk_arr = np.empty((S, 3))
+    gk_hold_phase = r.uniform(0, P.TICK_S, P.N_NODES) if cfg.gk_hold == "gatekeeper" else None
     for j in range(3):
         rel = LT.release_time(r, cv2_a, w.phase[C], cfg.relay_clock, cfg.lottery_enabled) + w.proc(S)
         arr = rel + w.lat_int[C, gk[:, j]] + w.jit(S)
-        if gk_valid[:, j].all():
-            gk_ids.append(w.ev.add(rel, arr, C, gk[:, j], w.relay_size("GK", S), P.RT_APPDATA, K_BIRTHMARK,
-                                   GK1 + j, sub))
-        else:   # C posts to its own board directly: no leg on the wire
-            m = gk_valid[:, j]
-            ids = np.full(S, -1, dtype=np.int64)
-            ids[m] = w.ev.add(rel[m], arr[m], C[m], gk[m, j], w.relay_size("GK", int(m.sum())), P.RT_APPDATA,
-                              K_BIRTHMARK, GK1 + j, sub[m])
-            gk_ids.append(ids)
-            arr = np.where(m, arr, cv2_a)
+        gk_ids.append(w.ev.add(rel, arr, C, gk[:, j], w.relay_size("GK", S), P.RT_APPDATA, K_BIRTHMARK,
+                               GK1 + j, sub))
+        gk_arr[:, j] = arr
+        if cfg.gk_hold:   # gatekeeper holds before countersigning and posting (its own hold clock)
+            ph = gk_hold_phase[gk[:, j]] if cfg.gk_hold == "gatekeeper" else r.uniform(0, P.TICK_S, S)
+            arr = LT.release_time(r, arr, ph, "node", True)
         posts[:, j] = arr + r.uniform(*P.GATEKEEPER_PROC_MS, S) / 1000   # Post-j: internal, unobserved
-    # quorum: 2 of the 3 boards; a record C signed as both C and gatekeeper does not count
-    quorum = np.sort(np.where(gk_valid, posts, np.inf), axis=1)[:, 1]
+    quorum = np.sort(posts, axis=1)[:, 1]                                 # 2 of 3 boards
 
     # F and I poll the boards on their own 10 s tick and post once 2-of-3 AND content are in
     # [DECISION: polling default, flagged as an assumption]
@@ -266,7 +279,7 @@ def gen_birthmark(w: World):
     oids = _gossip(w, origin, t_org, np.concatenate([sub, sub]), legs, mesh)
 
     subs = dict(t0=t0, dev=dev, val=val, C=C, F=F, I=I, A=A, B=B, D=D, E=E, G=G, H=Hh, gk=gk,
-                gk_valid=gk_valid, posts=posts, det_f=det_f, det_i=det_i,
+                posts=posts, gk_arr=gk_arr, gk_hold_phase=gk_hold_phase, det_f=det_f, det_i=det_i,
                 quorum=quorum, reg_f=reg_f, reg_i=reg_i, arr_c=arr_c, arr_f=arr_f, arr_i=arr_i,
                 ev_cred=np.stack(cred_ids, 1), ev_ca=np.stack(ca_ids, 1), ev_cb=np.stack(cb_ids, 1),
                 ev_cv1=cv1_id, ev_cv2=cv2_id, ev_gk=np.stack(gk_ids, 1),

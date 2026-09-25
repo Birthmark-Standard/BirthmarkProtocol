@@ -24,6 +24,7 @@ MAX_TICKS = 30             # forced release at 30 ticks (5 min cap)
 # Padding                                           [WB Simulation Parameters!C3]
 # ---------------------------------------------------------------------------
 PAD_MIN, PAD_MAX = 420, 460   # draw a TARGET total size uniformly, pad raw payload up to it
+PAD_GK_RING = (820, 860)      # [DECISION] own size class for the ring-signed GK leg (801 B raw)
 
 # ---------------------------------------------------------------------------
 # Topology                                          [WB Level 3!B8]
@@ -107,12 +108,25 @@ class Config:
     reg_hold_phase: str = "node"       # [WB Level 3!B13] "node": F's and I's own node clocks,
                                        #   independent of each other (spec). "fresh": a new random phase
                                        #   per posting (check run only, to settle the wording).
-    role_rules: str = "distinct"       # "distinct": nine distinct nodes per submission and C never a
-                                       #   gatekeeper (the published GPA sweep). "catalog": the Leg
-                                       #   Catalog rules (K3) as clarified by the protocol owner: A/D/G
-                                       #   exclude C/F/I; B excludes A and C, E excludes D and F, H excludes
-                                       #   G and I; gatekeepers are any three nodes, and when C is one of
-                                       #   them its self-signed board record does not count toward quorum.
+    role_rules: str = "distinct"       # "distinct": nine distinct nodes per submission, gatekeepers drawn
+                                       #   per submission and never C (the published GPA sweep).
+                                       #   "insider_v2": Insider Experiment Design!B3-B5. One active set of 3
+                                       #   gatekeepers per run [DECISION: rotation slower than a run], used by
+                                       #   every submission; C, F, I drawn from the other 17; A, D, G distinct
+                                       #   and never C, F or I; B != A, E != D, H != G, and B/E/H may coincide
+                                       #   with C/F/I (the hop then self-delivers: lottery hold, no wire leg).
+    gk_hold: str = ""                  # Hold at gatekeeper posting (Insider Experiment Design, "Hold at
+                                       #   gatekeeper posting"): each gatekeeper holds C's GK leg in the
+                                       #   lottery before countersigning and posting to its board.
+                                       #   "gatekeeper": each gatekeeper has a dedicated hold clock with its
+                                       #   own phase, drawn once and independent of its relay clock, of C's
+                                       #   fan-out clock and of the F/I hold clocks. "fresh": a new phase for
+                                       #   every held post (check). "": no hold. The hold is governed by this
+                                       #   setting alone, so it stays on in the lottery-off isolating control.
+    ring_sig: bool = False             # Insider Experiment Design!B6: C's signature is an AOS ring signature
+                                       #   over the 17-node C-candidate pool (ring_sig.py). F/I learn that a
+                                       #   pool member signed, not which one. The GK leg then carries 576 B of
+                                       #   signature and is padded in its own size class.
     cv_hold: bool = False              # [WB Level 3!B6] REJECTED: a hold at CV-1/2 strengthens the
                                        #   sequencing signal. True only to reproduce that comparison.
     padding_enabled: bool = True       # False = positive control (raw sizes on the wire)

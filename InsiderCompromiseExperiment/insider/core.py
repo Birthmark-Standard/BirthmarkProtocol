@@ -1,29 +1,31 @@
-"""The compromised insider's view and attacks.
+"""The compromised insider's view and attacks (Insider Experiment Design, corrected run).
 
 The adversary is the level3 global passive observer plus one compromised pool node X. X holds
 its own keys and knows its own events exactly. Roles rotate per submission, so X serves as F
-for some submissions, I for others, C for others, and as relay or gatekeeper for more. A
-scenario ("F", "I" or "C") scores the submissions where X holds that role.
+for some submissions, I for others, C for others, and as a relay for more. A scenario ("F", "I"
+or "C") scores the submissions where X holds that role. The three active gatekeepers are never
+C, F or I, so X is never a gatekeeper in a scored submission.
 
 What X adds to the level3 observer's view:
   * labels for its own events: which arrivals at X are its content terminals (as F/I) or its
     credential terminals (as C), and which GK legs it sent (as C);
-  * internal events that never reach the wire: the quorum-detection poll tick (as F/I), and
-    the gatekeeper legs it sent together with the quorum they imply (as C);
-  * identities it decrypts or verifies: as F/I, the board records show which node acted as C
-    (C's signature under each gatekeeper record, paper §3.3) and which gatekeepers posted; as a
-    gatekeeper for the same submission, it receives C's GK leg itself.
-It never learns a device IP (first-hop ingress stays anonymised) and holds no other party's
-keys.
+  * internal events that never reach the wire: the quorum-detection poll tick (as F/I), and the
+    quorum C can compute from its own GK legs;
+  * what the board records disclose to F/I: the gatekeepers that posted (the public active set)
+    and, without the ring signature, the node that acted as C.
+X never learns a device IP and holds no other party's keys. When X is the Random hop for its
+own submission (B = C, E = F, H = I) it does not use that coincidence (Insider Experiment
+Design!B3).
 
-Two variants per F/I scenario, so the timing gain is separated from the identity disclosure:
-  timing  own-event timing only (content arrival, detection tick), no identities
-  full    everything X legitimately knows, including C and gatekeeper identities and, when X is
-          also a gatekeeper for the same submission, the GK leg it received
-For C, no identity about the content side is disclosed to C, so the two variants coincide.
+Two variants per F/I scenario:
+  timing  X's detection tick and content arrival, scored against every validator reply
+  full    everything X knows. Without the ring signature, candidates are C's own validator
+          replies. With it, every candidate's sender is searched for GK legs to the three active
+          gatekeepers whose implied quorum agrees with X's own detection tick.
+For C, nothing on the content side is disclosed, so the two variants coincide.
 
-The likelihoods are Monte-Carlo estimates built by running the shared simulator itself on
-seeds disjoint from the evaluation seeds.
+The likelihoods are Monte-Carlo estimates from the shared simulator on seeds disjoint from the
+evaluation seeds.
 """
 from __future__ import annotations
 
@@ -42,10 +44,11 @@ GK_PROC_MEAN_S = sum(P.GATEKEEPER_PROC_MS) / 2 / 1000
 INCONSISTENT = -30.0       # log-penalty when a candidate contradicts X's own detection tick
 
 
-def adopted_config(devices: int, interval_min: float, **kw) -> P.Config:
+def adopted_config(devices: int, interval_min: float, ring_sig: bool = True, **kw) -> P.Config:
     """Adopted GPA settings (node clock, per-channel device phase, F/I hold, no CV hold,
-    25 background clients per node) with the Leg Catalog role rules."""
-    return P.Config(devices=devices, interval_min=interval_min, role_rules="catalog", **kw)
+    25 background clients per node) with the Insider Experiment Design role rules, the gatekeeper
+    exclusion and, unless ring_sig=False, the ring-signed C signature."""
+    return P.Config(devices=devices, interval_min=interval_min, role_rules="insider_v2", ring_sig=ring_sig, **kw)
 
 
 # =========================================================================== MC model
@@ -80,10 +83,12 @@ def quorum_from_legs(run):
     return np.sort(t, axis=1)[:, 1]
 
 
-def build_model(pools: Pools, n_runs=40, seed0=900_000) -> InsiderModel:
+def build_model(pools: Pools, n_runs=40, seed0=900_000, **cfg_kw) -> InsiderModel:
+    """Monte Carlo of the protocol under the same settings the evaluated system runs (the attacker
+    knows the protocol's configuration); cfg_kw overrides them, e.g. for the positive control."""
     d1u, d2u, d2c, seqc, nc, nt = [], [], [], [], 0, 0
     for k in range(n_runs):
-        cfg = adopted_config(200, 10, bg_clients_per_node=0, nonblending_enabled=False)
+        cfg = adopted_config(400, 20, bg_clients_per_node=0, nonblending_enabled=False, **cfg_kw)
         run = FS.simulate(cfg, seed0 + k, pools)
         for role in ("F", "I"):
             d1, d2, cens = _content_features(run, role)
@@ -104,6 +109,16 @@ def build_model(pools: Pools, n_runs=40, seed0=900_000) -> InsiderModel:
 
 
 # =========================================================================== helpers
+def _hold_samples(cfg, rng, m=2000):
+    """Monte Carlo draws of (gatekeeper posting hold + processing) for the three gatekeepers. The
+    gatekeepers' hold-clock phases are not observable, so the first tick is uniform in [0, 10) s."""
+    t = rng.uniform(0, 1000, (m, 3))
+    ph = rng.uniform(0, P.TICK_S, (m, 3))
+    rel = LT.release_time(rng, t.ravel(), ph.ravel(), "node", True).reshape(m, 3)
+    return rel - t + rng.uniform(*P.GATEKEEPER_PROC_MS, (m, 3)) / 1000
+
+
+
 def _scored_mask(run, subs_idx):
     t0 = run.subs["t0"][subs_idx]
     return (t0 >= P.WARMUP_S) & (t0 < P.WARMUP_S + P.MEASURE_S)
@@ -148,24 +163,28 @@ def content_scenario(run, pools, lik, model: InsiderModel, role: str, X: int, rn
     W_t = np.where(cens[:, None], lc, lu)
     W_t = np.where((d1 > 0) & np.isfinite(W_t), W_t, -np.inf)
 
-    # ---- full variant: + C and gatekeeper identities from the board records, + own GK leg
-    W_f = np.full_like(W_t, -np.inf)
+    # ---- full variant: everything X legitimately knows. The three active gatekeepers are public.
+    # Without the ring signature, the board record names C, so candidates are restricted to C's
+    # own validator replies. With it, X does not learn C and searches every candidate's sender.
+    ring = run.cfg.ring_sig
+    lo, hi = P.PAD_GK_RING if ring else (P.PAD_MIN, P.PAD_MAX)
+    gk_mask = (ev["size"] >= lo + pools.tls13_overhead) & (ev["size"] <= hi + pools.tls13_overhead)
+    if run.cfg.attacker_reads_record_type:
+        gk_mask &= ev["rtype"] == P.RT_APPDATA
     src, dst = ev["src"].astype(int), ev["dst"].astype(int)
-    overlap = np.zeros(items.size, bool)
+    gks = [int(g) for g in s["gk"][0]]
+    assert X not in gks or not items.size, "gatekeeper exclusion: a gatekeeper is never F or I"
+    legs = {(c, g): np.nonzero(gk_mask & (src == c) & (dst == g))[0] for c in range(P.N_NODES) for g in gks}
+    W_f = np.full_like(W_t, -np.inf)
+    W_l = np.full_like(W_t, -np.inf)       # the GK-leg search alone: legs + quorum agreement
+    held = _hold_samples(run.cfg, rng) if run.cfg.gk_hold else None
     for r, sidx in enumerate(items):
-        C = int(s["C"][sidx])
-        gks = [int(g) for g, v in zip(s["gk"][sidx], s["gk_valid"][sidx]) if v]
-        own_leg = None
-        if X in gks:
-            overlap[r] = True
-            j = int(np.nonzero(s["gk"][sidx] == X)[0][0])
-            own_leg = int(s["ev_gk"][sidx, j])
-        cand = np.nonzero((c_node == C) & (d1[r] > 0))[0]
-        legs = {g: np.nonzero(sig & (src == C) & (dst == g))[0] for g in gks}
+        base = (d1[r] > 0) & (d1[r] < model.d_max)     # plain time window, independent of the model
+        cand = np.nonzero(base & (c_node == int(s["C"][sidx])))[0] if not ring else np.nonzero(base)[0]
         for ci in cand:
-            tv, total, arrivals, ok = t_v[ci], 0.0, [], True
+            c, tv, total, arrivals, ok = int(c_node[ci]), t_v[ci], 0.0, [], True
             for g in gks:
-                e = np.array([own_leg]) if (g == X and own_leg is not None) else legs[g]
+                e = legs[(c, g)]
                 dd = ev["t_send"][e] - tv
                 w = np.where((dd > 0) & (dd < lik.hop_max), lik.hop(np.clip(dd, 0, lik.hop_max)), -np.inf)
                 if not np.isfinite(w).any():
@@ -173,19 +192,28 @@ def content_scenario(run, pools, lik, model: InsiderModel, role: str, X: int, rn
                     break
                 b = int(np.argmax(w))
                 total += w[b]
-                arrivals.append(ev["t_arr"][e[b]] + GK_PROC_MEAN_S)
+                arrivals.append(ev["t_arr"][e[b]])
             if not ok:
                 continue
-            q = sorted(arrivals)[1]
             tol = 0.006
-            consistent = (q <= det[r] + tol) and (cens[r] or q > det[r] - P.TICK_S - tol)
+            if held is None:
+                q = sorted(arrivals)[1] + GK_PROC_MEAN_S
+                consistent = (q <= det[r] + tol) and (cens[r] or q > det[r] - P.TICK_S - tol)
+                agree = 0.0 if consistent else INCONSISTENT
+            else:
+                # gatekeeper posting hold: probability that the held 2-of-3 quorum lands where X's
+                # own detection tick says it did
+                q = np.sort(np.asarray(arrivals)[None, :] + held, axis=1)[:, 1]
+                pr = np.mean((q <= det[r] + tol) & (cens[r] | (q > det[r] - P.TICK_S - tol)))
+                agree = float(np.log(max(pr, 1.0 / held.shape[0])))
             term = model.d2_cens(d2[r, ci]) if cens[r] else model.d2_unc(d2[r, ci])
-            W_f[r, ci] = total + (0.0 if consistent else INCONSISTENT) + (term if np.isfinite(term) else -10.0)
+            W_f[r, ci] = total + agree + (term if np.isfinite(term) else -10.0)
+            W_l[r, ci] = total + agree
 
     row_sub = items
     out = dict(timing=_evaluate(W_t, row_sub, col_sub, scored, rng),
                full=_evaluate(W_f, row_sub, col_sub, scored, rng),
-               overlap=overlap[scored].astype(np.int8), n_scored=int(scored.sum()))
+               legs=_evaluate(W_l, row_sub, col_sub, scored, rng), n_scored=int(scored.sum()))
     return out
 
 
@@ -202,7 +230,7 @@ def credential_scenario(run, pools, lik, model: InsiderModel, X: int, rng):
     d = ev["t_send"][cols][None, :] - q[:, None]
     W = np.where((d > 0) & (d < model.seq_max), model.seq_c(np.clip(d, 0, model.seq_max)), -np.inf)
     res = _evaluate(W, items, col_sub, scored, rng)
-    return dict(timing=res, full=res, overlap=np.zeros(int(scored.sum()), np.int8), n_scored=int(scored.sum()))
+    return dict(timing=res, full=res, legs=res, n_scored=int(scored.sum()))
 
 
 def run_scenario(scenario: str, cfg: P.Config, seed: int, pools, lik, model):
