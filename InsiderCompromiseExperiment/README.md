@@ -5,8 +5,9 @@ its own events exactly, gain a pairing capability beyond what the ProVerif model
 out cryptographically?
 
 The build spec is [`Birthmark_Insider_Compromise_Catalog.xlsx`](Birthmark_Insider_Compromise_Catalog.xlsx).
-Its *Insider Experiment Design* tab specifies this run. Its *Insider Results* tab records the
-first run, which serves as the baseline (numbers in `results/first_run/`). The system tabs
+Its *Insider Experiment Design* tab specifies the design changes tested here (B3 to B7). Its
+*Insider Results* tab records the original design, before those changes (numbers in
+`results/first_run/`); the results use it as a comparison point at the same L. The system tabs
 (Leg Catalog, Simulation Parameters, Size Verification) match the GPA experiment's workbook.
 Results are in [`RESULTS.md`](RESULTS.md).
 
@@ -54,8 +55,8 @@ These are the adopted GPA settings:
 - 25 background clients per node;
 - record type read by the observer.
 
-On top of those, the Insider Experiment Design changes (`role_rules="insider_v2"` in the shared
-simulator):
+On top of those come the Insider Experiment Design changes (`role_rules="insider_v2"` in the
+shared simulator) and the gatekeeper posting hold:
 - **Gatekeepers (B4, B5).** One active set of three gatekeepers per run, used by every
   submission. The rotation period is not specified; one set per 90-minute run treats rotation as
   slower than a run. C fans out to all three, and quorum is 2 of 3.
@@ -80,9 +81,12 @@ simulator):
 
 ## Configurations and sweep
 
+The adopted configuration:
+- **Redesign + gatekeeper hold** (`ring_sig=True, gk_hold="gatekeeper"`): B3 to B6 plus the hold.
+
+Comparison configurations:
+- **Redesign** (`ring_sig=True`): B3 to B6, without the hold.
 - **Exclusion only** (`ring_sig=False`): B3 to B5, with C's plain signature.
-- **Redesign** (`ring_sig=True`): B3 to B6.
-- **Redesign + gatekeeper hold** (`ring_sig=True, gk_hold="gatekeeper"`).
 - **Fresh-phase check** (`ring_sig=True, gk_hold="fresh"`): the hold with a new phase per post.
 
 Each configuration runs scenarios F, I and C at 80, 240 and 400 devices, with the interval held at
@@ -91,7 +95,7 @@ configurations.
 
 Comparison points share L, and so submission rate:
 
-| This run | First insider run | Published GPA |
+| This experiment | Original design | Published GPA |
 |---|---|---|
 | 80 devices | 40/10 | `main_80_20` (the same point) |
 | 240 devices | 120/10 | 120/10 |
