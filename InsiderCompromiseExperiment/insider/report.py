@@ -49,6 +49,8 @@ def summarize():
                            timing=_block(runs, "timing", L, rng))
                 if s in ("F", "I"):
                     rec["full"] = _block(runs, "full", L, rng)
+                    if all("legs" in r for r in runs):
+                        rec["legs"] = _block(runs, "legs", L, rng)
                 out["runs"][f"{c}_{s}_{d}"] = rec
     for d in DEVICES:
         for s in SCENARIOS:
@@ -75,7 +77,7 @@ def _csv(out):
         d, s = rec["devices"], rec["scenario"]
         fr = out["first_run"].get(f"{s}_{d}", {})
         g = out["gpa"].get(str(d), {})
-        for v in ("timing", "full"):
+        for v in ("timing", "full", "legs"):
             if v not in rec:
                 continue
             b, c = rec[v], rec[v]["calibration"]
@@ -99,7 +101,7 @@ def _csv(out):
 if __name__ == "__main__":
     s = summarize()
     for k, r in s["runs"].items():
-        for v in ("timing", "full"):
+        for v in ("timing", "full", "legs"):
             if v in r:
                 b = r[v]
                 print(f"{k:12s} {v:6s} acc={b['accuracy']:.3f} [{b['ci95'][0]:.3f},{b['ci95'][1]:.3f}] "

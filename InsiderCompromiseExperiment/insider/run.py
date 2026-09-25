@@ -3,9 +3,12 @@
     python -m insider.run          # both configurations, F / I / C, 80 / 240 / 400 devices
     python -m insider.report
 
-Configurations (Insider Experiment Design!B3-B6):
-  excl  corrected role rules + gatekeeper exclusion + 3-way fan-out; C's plain signature
-  ring  the same, with C's signature ring-signed over the 17-node C-candidate pool (the redesign)
+Configurations (Insider Experiment Design):
+  excl          corrected role rules + gatekeeper exclusion + 3-way fan-out; C's plain signature
+  ring          the same, with C's signature ring-signed over the 17-node C-candidate pool
+  gkhold        ring + each gatekeeper holds before countersigning and posting, on its own
+                dedicated hold clock (phase drawn once per gatekeeper)
+  gkhold_fresh  ring + the same hold with a fresh phase for every held post (check)
 Interval is held at 20 minutes, so L = 8, 24, 40 (Insider Experiment Design!B7, flagged assumption).
 
 Raw per-run results are appended to results/raw/<job>.pkl.gz; re-running resumes. Runs are
@@ -30,7 +33,11 @@ RAW = ROOT / "results" / "raw"
 RUNS = P.RUNS_PER_SETTING                       # 200, matching the GPA experiment
 INTERVAL_MIN = 20
 DEVICES = (80, 240, 400)
-CONFIGS = {"excl": False, "ring": True}        # value = ring_sig
+# name -> adopted_config overrides. Seeds are paired across all configurations.
+CONFIGS = {"excl": dict(ring_sig=False),
+           "ring": dict(ring_sig=True),
+           "gkhold": dict(ring_sig=True, gk_hold="gatekeeper"),          # redesign + gatekeeper hold
+           "gkhold_fresh": dict(ring_sig=True, gk_hold="fresh")}         # check: fresh phase per post
 SCENARIOS = ("F", "I", "C")                     # priority order
 
 
@@ -55,12 +62,14 @@ def _worker(job, config, scenario, devices, k):
     from . import core as K
     if "pools" not in _W:
         _W["pools"] = Pools()
-        _W["model"] = K.build_model(_W["pools"])
-    cfg = K.adopted_config(devices, INTERVAL_MIN, ring_sig=CONFIGS[config])
-    if "lik" not in _W:
-        _W["lik"] = A.build_likelihoods(cfg)
+    kw = CONFIGS[config]
+    cfg = K.adopted_config(devices, INTERVAL_MIN, **kw)
+    key = kw.get("gk_hold", "")           # the attacker's models follow the protocol being attacked
+    if key not in _W:
+        _W[key] = (K.build_model(_W["pools"], gk_hold=key), A.build_likelihoods(cfg))
+    model, lik = _W[key]
     t = time.time()
-    out = K.run_scenario(scenario, cfg, seed_for(scenario, devices, k), _W["pools"], _W["lik"], _W["model"])
+    out = K.run_scenario(scenario, cfg, seed_for(scenario, devices, k), _W["pools"], lik, model)
     out["run"], out["seconds"] = k, time.time() - t
     return job, out
 

@@ -113,3 +113,38 @@ def test_full_variant_is_near_perfect_without_lottery(pools):
             o = K.content_scenario(run, pools, lik, model, "F", X, np.random.default_rng(seed))
             hits += int(o["full"]["correct"].sum()); n += o["n_scored"]
     assert n > 50 and hits / n > 0.9
+
+
+def test_gatekeeper_hold_clocks_are_independent(pools):
+    """Each gatekeeper's posting hold runs on its own clock: posts on its own hold grid, phases
+    independent of its relay clock, of the other gatekeepers, of C's and of F/I's clocks, and hold
+    lengths uncorrelated across the three gatekeepers (Insider Experiment Design, gatekeeper hold)."""
+    from insider.clock_check import measure
+    r = measure(n_runs=40, devices=200, pools=pools)
+    g = r["gatekeeper"]
+    assert g["posts_on_own_hold_grid"] == 1.0
+    for k in ("hold_vs_own_relay_clock_uniform_p", "hold_between_gatekeepers_uniform_p",
+              "hold_vs_C_fanout_clock_uniform_p", "hold_vs_F_I_clocks_uniform_p",
+              "hold_length_corr_pvalues_uniform_p"):
+        assert g[k] > 0.001, k
+    assert r["fresh"]["post_phases_uniform_pvalues_uniform_p"] > 0.001
+    assert 100 < g["mean_hold_s"] < 112
+
+
+def test_gatekeeper_hold_alone_breaks_the_leg_search(pools):
+    """Isolating control. With every other lottery off, the GK-leg search (legs + quorum agreement,
+    no content-arrival timing) pins the pairing; adding only the gatekeeper hold breaks it."""
+    res = {}
+    for gk in ("", "gatekeeper"):
+        cfg = K.adopted_config(40, 20, lottery_enabled=False, ring_sig=True, gk_hold=gk)
+        lik = A.build_likelihoods(cfg, n=200_000)
+        model = K.build_model(pools, n_runs=3, lottery_enabled=False, gk_hold=gk)
+        hits = n = 0
+        for seed in range(2):
+            run = FS.simulate(cfg, 600 + seed, pools)
+            for X in range(P.N_NODES):
+                o = K.content_scenario(run, pools, lik, model, "F", X, np.random.default_rng(seed))
+                hits += int(o["legs"]["correct"].sum()); n += o["n_scored"]
+        res[gk] = hits / n
+    # measured: about 0.79 without the hold, about 0.24 with it
+    assert res[""] > 0.7 and res["gatekeeper"] < 0.5 * res[""]

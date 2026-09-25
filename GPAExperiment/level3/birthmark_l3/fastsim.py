@@ -244,11 +244,17 @@ def gen_birthmark(w: World):
 
     # gatekeeper fan-out: staggered, each leg its own lottery draw at C, to all three gatekeepers
     posts, gk_ids = np.empty((S, 3)), []
+    gk_arr = np.empty((S, 3))
+    gk_hold_phase = r.uniform(0, P.TICK_S, P.N_NODES) if cfg.gk_hold == "gatekeeper" else None
     for j in range(3):
         rel = LT.release_time(r, cv2_a, w.phase[C], cfg.relay_clock, cfg.lottery_enabled) + w.proc(S)
         arr = rel + w.lat_int[C, gk[:, j]] + w.jit(S)
         gk_ids.append(w.ev.add(rel, arr, C, gk[:, j], w.relay_size("GK", S), P.RT_APPDATA, K_BIRTHMARK,
                                GK1 + j, sub))
+        gk_arr[:, j] = arr
+        if cfg.gk_hold:   # gatekeeper holds before countersigning and posting (its own hold clock)
+            ph = gk_hold_phase[gk[:, j]] if cfg.gk_hold == "gatekeeper" else r.uniform(0, P.TICK_S, S)
+            arr = LT.release_time(r, arr, ph, "node", True)
         posts[:, j] = arr + r.uniform(*P.GATEKEEPER_PROC_MS, S) / 1000   # Post-j: internal, unobserved
     quorum = np.sort(posts, axis=1)[:, 1]                                 # 2 of 3 boards
 
@@ -273,7 +279,7 @@ def gen_birthmark(w: World):
     oids = _gossip(w, origin, t_org, np.concatenate([sub, sub]), legs, mesh)
 
     subs = dict(t0=t0, dev=dev, val=val, C=C, F=F, I=I, A=A, B=B, D=D, E=E, G=G, H=Hh, gk=gk,
-                posts=posts, det_f=det_f, det_i=det_i,
+                posts=posts, gk_arr=gk_arr, gk_hold_phase=gk_hold_phase, det_f=det_f, det_i=det_i,
                 quorum=quorum, reg_f=reg_f, reg_i=reg_i, arr_c=arr_c, arr_f=arr_f, arr_i=arr_i,
                 ev_cred=np.stack(cred_ids, 1), ev_ca=np.stack(ca_ids, 1), ev_cb=np.stack(cb_ids, 1),
                 ev_cv1=cv1_id, ev_cv2=cv2_id, ev_gk=np.stack(gk_ids, 1),

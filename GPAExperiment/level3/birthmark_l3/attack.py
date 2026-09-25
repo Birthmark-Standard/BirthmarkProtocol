@@ -106,9 +106,12 @@ def build_likelihoods(cfg: P.Config, n=1_000_000, seed=12345) -> Likelihoods:
         cv2 = relay(cv2)
     cv2 = cv2 + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n)
     ph_c = rng.uniform(0, P.TICK_S, n)
-    posts = np.stack([LT.release_time(rng, cv2, ph_c, cfg.relay_clock, on) + _proc(rng, n)
-                      + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n) + rng.uniform(*P.GATEKEEPER_PROC_MS, n) / 1000
-                      for _ in range(3)], 1)
+    def gk_post():
+        a = LT.release_time(rng, cv2, ph_c, cfg.relay_clock, on) + _proc(rng, n) + _lat(rng, P.LAT_INT_MS, n) + _jit(rng, n)
+        if cfg.gk_hold:   # gatekeeper posting hold; its clock phase is unknown to the observer
+            a = LT.release_time(rng, a, rng.uniform(0, P.TICK_S, n), "node", True)
+        return a + rng.uniform(*P.GATEKEEPER_PROC_MS, n) / 1000
+    posts = np.stack([gk_post() for _ in range(3)], 1)
     quorum = np.sort(posts, 1)[:, 1]
     ph_f = rng.uniform(0, P.TICK_S, n)
     reg = LT.next_tick(np.maximum(quorum, chain(t0)), ph_f)

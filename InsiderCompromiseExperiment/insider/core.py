@@ -109,6 +109,16 @@ def build_model(pools: Pools, n_runs=40, seed0=900_000, **cfg_kw) -> InsiderMode
 
 
 # =========================================================================== helpers
+def _hold_samples(cfg, rng, m=2000):
+    """Monte Carlo draws of (gatekeeper posting hold + processing) for the three gatekeepers. The
+    gatekeepers' hold-clock phases are not observable, so the first tick is uniform in [0, 10) s."""
+    t = rng.uniform(0, 1000, (m, 3))
+    ph = rng.uniform(0, P.TICK_S, (m, 3))
+    rel = LT.release_time(rng, t.ravel(), ph.ravel(), "node", True).reshape(m, 3)
+    return rel - t + rng.uniform(*P.GATEKEEPER_PROC_MS, (m, 3)) / 1000
+
+
+
 def _scored_mask(run, subs_idx):
     t0 = run.subs["t0"][subs_idx]
     return (t0 >= P.WARMUP_S) & (t0 < P.WARMUP_S + P.MEASURE_S)
@@ -166,6 +176,8 @@ def content_scenario(run, pools, lik, model: InsiderModel, role: str, X: int, rn
     assert X not in gks or not items.size, "gatekeeper exclusion: a gatekeeper is never F or I"
     legs = {(c, g): np.nonzero(gk_mask & (src == c) & (dst == g))[0] for c in range(P.N_NODES) for g in gks}
     W_f = np.full_like(W_t, -np.inf)
+    W_l = np.full_like(W_t, -np.inf)       # the GK-leg search alone: legs + quorum agreement
+    held = _hold_samples(run.cfg, rng) if run.cfg.gk_hold else None
     for r, sidx in enumerate(items):
         base = (d1[r] > 0) & (d1[r] < model.d_max)     # plain time window, independent of the model
         cand = np.nonzero(base & (c_node == int(s["C"][sidx])))[0] if not ring else np.nonzero(base)[0]
@@ -180,18 +192,28 @@ def content_scenario(run, pools, lik, model: InsiderModel, role: str, X: int, rn
                     break
                 b = int(np.argmax(w))
                 total += w[b]
-                arrivals.append(ev["t_arr"][e[b]] + GK_PROC_MEAN_S)
+                arrivals.append(ev["t_arr"][e[b]])
             if not ok:
                 continue
-            q = sorted(arrivals)[1]
             tol = 0.006
-            consistent = (q <= det[r] + tol) and (cens[r] or q > det[r] - P.TICK_S - tol)
+            if held is None:
+                q = sorted(arrivals)[1] + GK_PROC_MEAN_S
+                consistent = (q <= det[r] + tol) and (cens[r] or q > det[r] - P.TICK_S - tol)
+                agree = 0.0 if consistent else INCONSISTENT
+            else:
+                # gatekeeper posting hold: probability that the held 2-of-3 quorum lands where X's
+                # own detection tick says it did
+                q = np.sort(np.asarray(arrivals)[None, :] + held, axis=1)[:, 1]
+                pr = np.mean((q <= det[r] + tol) & (cens[r] | (q > det[r] - P.TICK_S - tol)))
+                agree = float(np.log(max(pr, 1.0 / held.shape[0])))
             term = model.d2_cens(d2[r, ci]) if cens[r] else model.d2_unc(d2[r, ci])
-            W_f[r, ci] = total + (0.0 if consistent else INCONSISTENT) + (term if np.isfinite(term) else -10.0)
+            W_f[r, ci] = total + agree + (term if np.isfinite(term) else -10.0)
+            W_l[r, ci] = total + agree
 
     row_sub = items
     out = dict(timing=_evaluate(W_t, row_sub, col_sub, scored, rng),
-               full=_evaluate(W_f, row_sub, col_sub, scored, rng), n_scored=int(scored.sum()))
+               full=_evaluate(W_f, row_sub, col_sub, scored, rng),
+               legs=_evaluate(W_l, row_sub, col_sub, scored, rng), n_scored=int(scored.sum()))
     return out
 
 
@@ -208,7 +230,7 @@ def credential_scenario(run, pools, lik, model: InsiderModel, X: int, rng):
     d = ev["t_send"][cols][None, :] - q[:, None]
     W = np.where((d > 0) & (d < model.seq_max), model.seq_c(np.clip(d, 0, model.seq_max)), -np.inf)
     res = _evaluate(W, items, col_sub, scored, rng)
-    return dict(timing=res, full=res, n_scored=int(scored.sum()))
+    return dict(timing=res, full=res, legs=res, n_scored=int(scored.sum()))
 
 
 def run_scenario(scenario: str, cfg: P.Config, seed: int, pools, lik, model):

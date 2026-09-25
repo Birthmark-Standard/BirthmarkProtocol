@@ -115,6 +115,14 @@ class Config:
                                        #   every submission; C, F, I drawn from the other 17; A, D, G distinct
                                        #   and never C, F or I; B != A, E != D, H != G, and B/E/H may coincide
                                        #   with C/F/I (the hop then self-delivers: lottery hold, no wire leg).
+    gk_hold: str = ""                  # Hold at gatekeeper posting (Insider Experiment Design, "Hold at
+                                       #   gatekeeper posting"): each gatekeeper holds C's GK leg in the
+                                       #   lottery before countersigning and posting to its board.
+                                       #   "gatekeeper": each gatekeeper has a dedicated hold clock with its
+                                       #   own phase, drawn once and independent of its relay clock, of C's
+                                       #   fan-out clock and of the F/I hold clocks. "fresh": a new phase for
+                                       #   every held post (check). "": no hold. The hold is governed by this
+                                       #   setting alone, so it stays on in the lottery-off isolating control.
     ring_sig: bool = False             # Insider Experiment Design!B6: C's signature is an AOS ring signature
                                        #   over the 17-node C-candidate pool (ring_sig.py). F/I learn that a
                                        #   pool member signed, not which one. The GK leg then carries 576 B of
