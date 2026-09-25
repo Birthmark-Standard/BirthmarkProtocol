@@ -16,7 +16,7 @@ This repository holds the protocol's formal architecture, its formal verificatio
 
 Sam Ryan. "The Birthmark Protocol: Achieving Semantic Non-Assembly in Media Provenance."
 
-[Full venue, date, and DOI/arXiv identifier to be added once available. The paper is currently in peer review. This repository's formal verification artifacts (`ProverifModels/`) are already final and citable independent of that process. The empirical evaluations (`GPAExperiment/`, `InsiderCompromiseExperiment/`) are active work; specific numbers and scenarios may still change as further rounds complete.]
+[Full venue, date, and DOI/arXiv identifier to be added once available. The paper is currently in peer review. This repository's formal verification artifacts (`ProverifModels/`) and empirical evaluations (`GPAExperiment/`, `InsiderCompromiseExperiment/`) are complete and citable independent of that process.]
 
 ## License
 
@@ -24,4 +24,4 @@ Released under Apache 2.0. This work is published as prior art: the architecture
 
 ## Status
 
-Active. The formal properties in `ProverifModels/` are stable and independently verifiable with ProVerif. The empirical evaluations in `GPAExperiment/` and `InsiderCompromiseExperiment/` are ongoing: results to date are measured and reported directly, including residual findings not yet closed, and further rounds may still change specific numbers or add new scenarios. The paper itself may still change during peer review; this repository is updated to stay consistent with whatever the current version claims.
+The formal properties in `ProverifModels/` are stable and independently verifiable with ProVerif. The empirical evaluations in `GPAExperiment/` and `InsiderCompromiseExperiment/` are complete. Their results are measured and reported directly in each experiment's `RESULTS.md`, including residual findings that remain open. The paper itself may still change during peer review; this repository is updated to stay consistent with whatever the current version claims.
