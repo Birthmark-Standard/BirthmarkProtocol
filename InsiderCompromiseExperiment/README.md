@@ -20,8 +20,10 @@ with no keys. This one holds one node's keys.
 | `insider/core.py` | The compromised node's view, the Monte Carlo model, and the F/I and C scenarios |
 | `insider/run.py` | The sweep runner (resumable, parallel, paired seeds across configurations) |
 | `insider/report.py` | Aggregation into `results/summary.json` and `results/summary.csv` |
-| `insider/gpa_check.py` | The outside observer's sequencing attack under the redesign |
-| `tests/test_insider.py` | Role rules, gatekeeper exclusion, ring signature, model fit, positive controls |
+| `insider/gpa_check.py` | The outside observer's sequencing attack under the redesign, with and without the gatekeeper hold |
+| `insider/clock_check.py` | Direct measurement that the gatekeeper hold clocks are independent |
+| `insider/control.py` | Isolating control for the gatekeeper hold (every other lottery hold off) |
+| `tests/test_insider.py` | Role rules, gatekeeper exclusion, ring signature, model fit, positive controls, hold clock independence |
 
 The shared code lives in `../GPAExperiment/level3/birthmark_l3`, and this experiment imports it:
 - the simulator, lottery and clock mechanics, and padding;
@@ -35,8 +37,10 @@ The shared code lives in `../GPAExperiment/level3/birthmark_l3`, and this experi
 ```
 pip install -r ../GPAExperiment/level3/requirements.txt
 python -m pytest -q tests                  # ~45 s
-python -m insider.run                      # ~20 min on 4 cores
-python -m insider.gpa_check                # ~3 min
+python -m insider.run                      # ~2 h on 4 cores (four configurations)
+python -m insider.gpa_check                # ~3 min per configuration
+python -m insider.clock_check
+python -m insider.control
 python -m insider.report
 ```
 
@@ -67,14 +71,22 @@ simulator):
   member signed, and not which one. The signature is 576 B, so the GK leg grows to 801 B raw (measured
   with real keys). It is padded in its own size class, 820–860 B, which is 842–882 B on the wire;
   every other leg keeps 420–460 B. The gatekeepers' countersignatures are unchanged.
+- **Gatekeeper posting hold.** `gk_hold="gatekeeper"` makes each gatekeeper hold C's GK leg in
+  the lottery (10-second ticks, 8.33% release per tick, 5-minute cap) before countersigning and
+  posting to its own match board. Each gatekeeper has a dedicated hold clock whose phase is drawn
+  once per run, independently of its relay clock, the other gatekeepers' hold clocks, C's fan-out
+  clock and the F/I hold clocks. `gk_hold="fresh"` draws a new phase for every held post instead.
+  The hold is governed by this setting alone, so it stays on when the rest of the lottery is off.
 
 ## Configurations and sweep
 
 - **Exclusion only** (`ring_sig=False`): B3 to B5, with C's plain signature.
 - **Redesign** (`ring_sig=True`): B3 to B6.
+- **Redesign + gatekeeper hold** (`ring_sig=True, gk_hold="gatekeeper"`).
+- **Fresh-phase check** (`ring_sig=True, gk_hold="fresh"`): the hold with a new phase per post.
 
 Each configuration runs scenarios F, I and C at 80, 240 and 400 devices, with the interval held at
-20 minutes (L = 8, 24, 40; B7). That is 200 runs per cell, on seeds paired across the two
+20 minutes (L = 8, 24, 40; B7). That is 200 runs per cell, on seeds paired across all
 configurations.
 
 Comparison points share L, and so submission rate:
@@ -116,9 +128,14 @@ validator's reply arriving at some C):
   active gatekeepers. The quorum those legs imply must agree with X's own detection tick. Candidates
   are scored on the legs' hop likelihood, on that agreement, and on content-arrival timing. The
   random-assignment baseline of this variant measures what the identity disclosure gives on its own.
+  When the gatekeepers hold, the quorum those legs imply is uncertain, so agreement is scored as
+  the Monte Carlo probability that the held quorum falls in X's detection window.
+- *legs*: the GK-leg search and the quorum agreement alone, without content-arrival timing. It
+  isolates the leg pathway.
 
 **C compromised.** Each of X's credential transactions is paired with the registry-gossip bursts
 of F and I, with the quorum computed from X's own GK legs.
 
 The Monte Carlo models come from the shared simulator, built under the same configuration as the
-system being evaluated, on seeds disjoint from the evaluation seeds.
+system being evaluated, on seeds disjoint from the evaluation seeds. Each bootstrap interval is
+seeded by its own cell name, so intervals do not depend on which configurations are aggregated.

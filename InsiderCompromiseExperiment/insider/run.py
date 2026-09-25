@@ -12,7 +12,7 @@ Configurations (Insider Experiment Design):
 Interval is held at 20 minutes, so L = 8, 24, 40 (Insider Experiment Design!B7, flagged assumption).
 
 Raw per-run results are appended to results/raw/<job>.pkl.gz; re-running resumes. Runs are
-paired across the two configurations (same seed per scenario, device count and run index).
+paired across all configurations (same seed per scenario, device count and run index).
 """
 from __future__ import annotations
 

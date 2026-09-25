@@ -1,0 +1,37 @@
+{
+ "no_hold": {
+  "timing": {
+   "accuracy": 0.9392812887236679,
+   "random_assignment": 0.9615861214374225,
+   "n": 807
+  },
+  "full": {
+   "accuracy": 0.9653035935563816,
+   "random_assignment": 0.7955390334572491,
+   "n": 807
+  },
+  "legs": {
+   "accuracy": 0.781908302354399,
+   "random_assignment": 0.7992565055762082,
+   "n": 807
+  }
+ },
+ "gatekeeper": {
+  "timing": {
+   "accuracy": 0.9653035935563816,
+   "random_assignment": 0.9578686493184635,
+   "n": 807
+  },
+  "full": {
+   "accuracy": 0.9752168525402726,
+   "random_assignment": 0.09913258983890955,
+   "n": 807
+  },
+  "legs": {
+   "accuracy": 0.20074349442379183,
+   "random_assignment": 0.08674101610904585,
+   "n": 807
+  }
+ },
+ "L": 4.0
+}

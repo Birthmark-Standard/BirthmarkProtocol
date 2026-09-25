@@ -10,6 +10,7 @@ Comparison points share L (and so submission rate) with this run's device counts
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 
 import numpy as np
@@ -25,7 +26,10 @@ FIRST_RUN_KEY = {80: "40_10", 240: "120_10", 400: "200_10"}
 GPA_KEY = {80: "main_80_20", 240: "main_120_10", 400: "main_200_10"}
 
 
-def _block(runs, variant, L, rng):
+def _block(runs, variant, L, key):
+    # each block's bootstrap is seeded by its own name, so intervals do not depend on which
+    # configurations are aggregated alongside it
+    rng = np.random.default_rng(int.from_bytes(hashlib.sha256(key.encode()).digest()[:4], "big"))
     recs = [dict(x=r[variant], n_scored=r["n_scored"], x_chance=r[variant]["chance"]) for r in runs]
     b = R._attack_block(recs, "x", "x_chance", L, rng)
     feas = np.concatenate([r[variant]["feasible"] for r in runs])
@@ -34,7 +38,6 @@ def _block(runs, variant, L, rng):
 
 
 def summarize():
-    rng = np.random.default_rng(0)
     first = json.loads(FIRST_RUN.read_text())["tier2"] if FIRST_RUN.exists() else {}
     gpa = json.loads(GPA_SUMMARY.read_text())["jobs"] if GPA_SUMMARY.exists() else {}
     out = {"runs": {}, "first_run": {}, "gpa": {}}
@@ -46,11 +49,11 @@ def summarize():
                     continue
                 L = L_of(d)
                 rec = dict(config=c, scenario=s, devices=d, interval_min=20, L=L, runs=len(runs),
-                           timing=_block(runs, "timing", L, rng))
+                           timing=_block(runs, "timing", L, f"{s}_{d}_timing"))
                 if s in ("F", "I"):
-                    rec["full"] = _block(runs, "full", L, rng)
+                    rec["full"] = _block(runs, "full", L, f"{c}_{s}_{d}_full")
                     if all("legs" in r for r in runs):
-                        rec["legs"] = _block(runs, "legs", L, rng)
+                        rec["legs"] = _block(runs, "legs", L, f"{c}_{s}_{d}_legs")
                 out["runs"][f"{c}_{s}_{d}"] = rec
     for d in DEVICES:
         for s in SCENARIOS:
