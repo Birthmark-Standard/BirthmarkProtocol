@@ -11,7 +11,7 @@ Its *Insider Experiment Design* tab specifies the design changes tested here (B3
 (Leg Catalog, Simulation Parameters, Size Verification) match the GPA experiment's workbook.
 Results are in [`RESULTS.md`](RESULTS.md).
 
-The GPA experiment ([`../GPAExperiment/level3/`](../GPAExperiment/level3/)) tests an adversary
+The GPA experiment ([`../GPAExperiment/`](../GPAExperiment/)) tests an adversary
 with no keys. This one holds one node's keys.
 
 ## Layout
