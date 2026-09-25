@@ -1,0 +1,20 @@
+{
+ "gatekeeper": {
+  "runs": 150,
+  "mean_hold_s": 106.23539262316261,
+  "hold_length_corr_pvalues_uniform_p": 0.8233430738545995,
+  "min_hold_corr_p": 0.0030286125444911245,
+  "posts_on_own_hold_grid": 1.0,
+  "hold_vs_own_relay_clock_uniform_p": 0.14344195077308397,
+  "hold_between_gatekeepers_uniform_p": 0.5300805854426521,
+  "hold_vs_C_fanout_clock_uniform_p": 0.6860659008882954,
+  "hold_vs_F_I_clocks_uniform_p": 0.274800242414608
+ },
+ "fresh": {
+  "runs": 150,
+  "mean_hold_s": 106.2042671449388,
+  "hold_length_corr_pvalues_uniform_p": 0.1353968762272707,
+  "min_hold_corr_p": 0.0008576645090600067,
+  "post_phases_uniform_pvalues_uniform_p": 0.12363838909902347
+ }
+}
